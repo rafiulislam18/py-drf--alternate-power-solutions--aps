@@ -12,7 +12,7 @@ class Client(models.Model):
 
 
 class Subscription(models.Model):
-    user = models.OneToOneField(Client, on_delete=models.CASCADE)
+    client = models.OneToOneField(Client, on_delete=models.CASCADE)
     stripe_customer_id = models.CharField(max_length=255, blank=True, null=True)
     stripe_subscription_id = models.CharField(max_length=255, blank=True, null=True)
     subscription_length = models.IntegerField(default=0)  # Months
