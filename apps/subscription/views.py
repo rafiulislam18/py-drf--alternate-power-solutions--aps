@@ -35,7 +35,7 @@ class CreateCheckoutSession(APIView):
                 payment_method_types=['card'],
                 mode='subscription',
                 line_items=[{
-                    'price': 'your_stripe_price_id',  # Create recurring price in Stripe dashboard for R99/month
+                    'price': f'{settings.STRIPE_PRICE_ID}',  # Create recurring price in Stripe dashboard for R99/month
                     'quantity': 1,
                 }],
                 success_url='http://localhost:3000/success?session_id={CHECKOUT_SESSION_ID}',
