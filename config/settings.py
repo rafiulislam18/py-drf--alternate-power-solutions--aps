@@ -46,7 +46,8 @@ INSTALLED_APPS = [
 
     # Third-party packages
     'rest_framework',
-    'drf_yasg',
+    # NOTE: Don't create public API Documentation. Create a private custom API Documentation.
+    # 'drf_yasg',
 
     # Custom apps
     'apps.chatbot',
@@ -144,10 +145,11 @@ REST_FRAMEWORK = {
 }
 
 
-SWAGGER_SETTINGS = {
-    'USE_SESSION_AUTH': False,
-    'JSON_EDITOR': True,
-}
+# NOTE: Don't create public API Documentation. Create a private custom API Documentation.
+# SWAGGER_SETTINGS = {
+#     'USE_SESSION_AUTH': False,
+#     'JSON_EDITOR': True,
+# }
 
 
 JAZZMIN_SETTINGS = {
