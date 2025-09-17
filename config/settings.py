@@ -134,24 +134,24 @@ STATICFILES_DIRS = [BASE_DIR / 'static']
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 
+SWAGGER_SETTINGS = {
+    'USE_SESSION_AUTH': False,
+    'JSON_EDITOR': True,
+}
+
+
 JAZZMIN_SETTINGS = {
     # title of the window (Will default to current_admin_site.site_title if absent or None)
     "site_title": "APS Admin",
 
     # Title on the login screen (19 chars max) (defaults to current_admin_site.site_header if absent or None)
-    "site_header": "APS",
+    "site_header": "APS Admin",
 
     # Title on the brand (19 chars max) (defaults to current_admin_site.site_header if absent or None)
-    "site_brand": "APS",
+    "site_brand": "APS Admin",
 
     # Logo to use for your site, must be present in static files, used for brand on top left
     "site_logo": "logo.png",
-
-    # Logo to use for your site, must be present in static files, used for login form logo (defaults to site_logo)
-    # "login_logo": None,
-
-    # Logo to use for login form in dark themes (defaults to login_logo)
-    # "login_logo_dark": None,
 
     # CSS classes that are applied to the logo above
     "site_logo_classes": "img-square",
