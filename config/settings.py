@@ -49,7 +49,7 @@ INSTALLED_APPS = [
     'drf_yasg',
 
     # Custom apps
-    'apps.message',
+    'apps.chatbot',
     'apps.quote_request',
     'apps.subscription',
 ]
@@ -139,6 +139,11 @@ STATICFILES_DIRS = [BASE_DIR / 'static']
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 
+REST_FRAMEWORK = {
+    "EXCEPTION_HANDLER": "utils.exceptions.custom_exception_handler",
+}
+
+
 SWAGGER_SETTINGS = {
     'USE_SESSION_AUTH': False,
     'JSON_EDITOR': True,
@@ -178,3 +183,13 @@ JAZZMIN_SETTINGS = {
         "subscription.Subscription": "fas fa-crown",
     },
 }
+
+
+# Stripe configurations
+STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
+STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
+
+
+# AI Chatbot configurations (Grok)
+CHATBOT_API_KEY = os.getenv("CHATBOT_API_KEY")
+CHATBOT_API_URL = os.getenv("CHATBOT_API_URL")

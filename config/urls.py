@@ -41,9 +41,9 @@ urlpatterns = [
     path('admin/', admin.site.urls),
 
     # Config custom apps URLs
-    # path('message/', include('apps.message.urls')),
+    path('chatbot/', include('apps.chatbot.urls')),
     # path('quote-request/', include('apps.quote_request.urls')),
-    # path('subscription/', include('apps.subscription.urls')),
+    path('subscription/', include('apps.subscription.urls')),
 
     # Config URLs for Swagger API Documentation
     path('', RedirectView.as_view(url='docs/', permanent=False), name='landing'),
