@@ -44,16 +44,17 @@ class CreateCheckoutSession(APIView):
             )
 
             # Get or create Client
-            client = Client.objects.create(
+            client, created = Client.objects.get_or_create(
                 name=name,
                 email=email,
-                phone=phone,
-                address=address
+                phone=phone
             )
-            client.save()
+            if created:
+                client.save()
 
             # Create or update subscription
-            sub = Subscription.objects.get_or_create(client=client)
+            sub = Subscription.objects.create(client=client)
+            sub.address = address
             sub.stripe_customer_id = customer.id
             sub.save()
             return Response({'url': session.url})

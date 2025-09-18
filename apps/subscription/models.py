@@ -5,14 +5,17 @@ class Client(models.Model):
     name = models.CharField(max_length=255)
     email = models.EmailField(max_length=320)
     phone = models.CharField(max_length=20)
-    address = models.CharField(max_length=255, blank=True, null=True)
     note = models.TextField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    def __str__(self):
+        return f"{self.name}"
+
 
 class Subscription(models.Model):
-    client = models.OneToOneField(Client, on_delete=models.SET_NULL, blank=True, null=True)
+    client = models.ForeignKey(Client, on_delete=models.SET_NULL, blank=True, null=True)
+    address = models.CharField(max_length=510, blank=True, null=True)
     stripe_customer_id = models.CharField(max_length=255, blank=True, null=True)
     stripe_subscription_id = models.CharField(max_length=255, blank=True, null=True)
     subscription_length = models.IntegerField(default=0)  # Months
@@ -20,3 +23,6 @@ class Subscription(models.Model):
     is_active = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.address}"
