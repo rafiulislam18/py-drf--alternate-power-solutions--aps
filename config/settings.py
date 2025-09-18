@@ -166,7 +166,7 @@ JAZZMIN_SETTINGS = {
     "site_logo": "logo.png",
 
     # CSS classes that are applied to the logo above
-    "site_logo_classes": "img-square",
+    "site_logo_classes": "img-circle",
 
     # Welcome text on the login screen
     "welcome_sign": "Welcome to APS Admin",

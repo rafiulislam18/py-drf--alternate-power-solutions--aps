@@ -80,7 +80,8 @@ def stripe_webhook(request):
         session = event.data.object
         customer_id = session.customer
         sub_id = session.subscription
-        sub = Subscription.objects.get_or_create(stripe_customer_id=customer_id)
+        # sub_id = session.get('subscription')
+        sub, created = Subscription.objects.get_or_create(stripe_customer_id=customer_id)
         sub.stripe_subscription_id = sub_id
         sub.is_active = True
         sub.save()
@@ -88,8 +89,9 @@ def stripe_webhook(request):
 
     elif event.type == 'invoice.paid':
         # Monthly payment success
-        sub_id = event.data.object.subscription
-        sub = Subscription.objects.get_or_create(stripe_subscription_id=sub_id)
+        # sub_id = event.data.object.subscription
+        sub_id = event.data.object.parent.subscription_details.subscription
+        sub, created = Subscription.objects.get_or_create(stripe_subscription_id=sub_id)
         sub.subscription_length += 1
         if (sub.subscription_length % 12) == 0:
             sub.call_out_balance = 2
@@ -97,7 +99,7 @@ def stripe_webhook(request):
 
     elif event.type == 'customer.subscription.deleted':
         sub_id = event.data.object.id
-        sub = Subscription.objects.get_or_create(stripe_subscription_id=sub_id)
+        sub, created = Subscription.objects.get_or_create(stripe_subscription_id=sub_id)
         sub.is_active = False
         sub.save()
 
