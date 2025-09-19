@@ -53,6 +53,9 @@ INSTALLED_APPS = [
     'apps.chatbot',
     'apps.quote_request',
     'apps.subscription',
+    'apps.services',
+    'apps.projects',
+    'apps.blog',
 ]
 
 MIDDLEWARE = [
@@ -134,6 +137,9 @@ STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 STATICFILES_DIRS = [BASE_DIR / 'static']
 
+MEDIA_URL = '/media/'
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
@@ -186,13 +192,19 @@ JAZZMIN_SETTINGS = {
     },
 }
 
-
 # Stripe configurations
 STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
 STRIPE_PRICE_ID = os.getenv("STRIPE_PRICE_ID")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
 
-
 # AI Chatbot configurations (Grok)
 CHATBOT_API_KEY = os.getenv("CHATBOT_API_KEY")
 CHATBOT_API_URL = os.getenv("CHATBOT_API_URL")
+
+# Email Service Configuration
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = 'smtp.gmail.com'
+EMAIL_PORT = 587
+EMAIL_USE_TLS = True
+EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER')
+EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD')
