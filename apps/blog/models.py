@@ -13,7 +13,7 @@ class BlogCategory(models.Model):
 
 
 class Blog(models.Model):
-    category = models.ForeignKey(BlogCategory, on_delete=models.SET_NULL, null=True, blank=True, related_name="blogs")
+    category = models.ForeignKey(BlogCategory, on_delete=models.CASCADE, related_name="blogs")
     title = models.CharField(max_length=255)
     short_description = models.TextField()
     long_description = models.TextField()
