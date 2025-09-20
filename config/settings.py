@@ -30,7 +30,11 @@ SECRET_KEY = os.getenv('DJANGO_SECRET_KEY')
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['*', 'deb8b3b7582e.ngrok-free.app']
+ALLOWED_HOSTS = ['*', 'deb8b3b7582e.ngrok-free.app', 'localhost:5173']
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
 
 
 # Application definition
@@ -45,6 +49,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
 
     # Third-party packages
+    'corsheaders',
     'rest_framework',
     # NOTE: Don't create public API Documentation. Create a private custom API Documentation.
     # 'drf_yasg',
@@ -53,12 +58,12 @@ INSTALLED_APPS = [
     'apps.chatbot',
     'apps.quote_request',
     'apps.subscription',
-    'apps.services',
-    'apps.projects',
+    'apps.services_and_projects',
     'apps.blog',
 ]
 
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -187,7 +192,10 @@ JAZZMIN_SETTINGS = {
         "auth.user": "fas fa-user",
         "auth.Group": "fas fa-users",
 
-        "subscription.Client": "fas fa-user",
+        "services_and_projects.Service": "fas fa-cogs",
+        "services_and_projects.Project": "fas fa-project-diagram",
+
+        "subscription.Client": "fas fa-hands-helping",
         "subscription.Subscription": "fas fa-crown",
     },
 }

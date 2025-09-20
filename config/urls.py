@@ -45,6 +45,7 @@ urlpatterns = [
     path('chatbot/', include('apps.chatbot.urls')),
     # path('quote-request/', include('apps.quote_request.urls')),
     path('subscription/', include('apps.subscription.urls')),
+    path('services-projects/', include('apps.services_and_projects.urls')),
 
     # Config URLs for Swagger API Documentation
     # NOTE: Don't create public API Documentation. Create a private custom API Documentation.
