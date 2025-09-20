@@ -22,6 +22,7 @@ from django.urls import path, include
 # from rest_framework import permissions
 # from drf_yasg.views import get_schema_view
 # from drf_yasg import openapi
+from .views import HomePageAPIView
 
 
 # NOTE: Don't create public API Documentation. Create a private custom API Documentation.
@@ -40,12 +41,14 @@ from django.urls import path, include
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path('home/', HomePageAPIView.as_view(), name='home'),
 
     # Config custom apps URLs
     path('chatbot/', include('apps.chatbot.urls')),
     # path('quote-request/', include('apps.quote_request.urls')),
     path('subscription/', include('apps.subscription.urls')),
     path('services-projects/', include('apps.services_and_projects.urls')),
+    path('blogs/', include('apps.blog.urls')),
 
     # Config URLs for Swagger API Documentation
     # NOTE: Don't create public API Documentation. Create a private custom API Documentation.
