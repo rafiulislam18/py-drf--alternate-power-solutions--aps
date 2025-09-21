@@ -12,7 +12,7 @@ class CompanyChatbot:
         self.company_context = """
         Company Name: Alternate Power Solutions
         Industry: Energy & Property Solutions
-        Services: Electrical Installations, Solar and Backup Systems, Plumbing Services, Waterproofing and Roof Repairing, Painting Services
+        Services: Electrical Installation, Solar and Backup Systems, Plumbing Services, Waterproofing and Roof Repair, Painting Services
         Founded: 2015
         Location: Cape Town, South Africa
         Working Hours: 24/7 For Emergency
