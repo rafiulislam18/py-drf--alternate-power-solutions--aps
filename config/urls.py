@@ -45,7 +45,7 @@ urlpatterns = [
 
     # Config custom apps URLs
     path('chatbot/', include('apps.chatbot.urls')),
-    # path('quote-request/', include('apps.quote_request.urls')),
+    path('quote-request/', include('apps.quote_request.urls')),
     path('subscription/', include('apps.subscription.urls')),
     path('services-projects/', include('apps.services_and_projects.urls')),
     path('blogs/', include('apps.blog.urls')),

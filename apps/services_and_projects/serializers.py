@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Service, Project
+from .models import *
 
 
 class ProjectSerializer(serializers.ModelSerializer):
@@ -14,3 +14,9 @@ class ServiceSerializer(serializers.ModelSerializer):
     class Meta:
         model = Service
         fields = '__all__'
+
+
+class ServiceListSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Service
+        fields = ['id', 'title']
