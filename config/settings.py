@@ -192,6 +192,11 @@ JAZZMIN_SETTINGS = {
         "auth.user": "fas fa-user",
         "auth.Group": "fas fa-users",
 
+        "blog.BlogCategory": "fas fa-folder",
+        "blog.Blog": "fas fa-newspaper",
+
+        "quote_request.QuoteRequest": "fas fa-envelope-open-text",
+
         "services_and_projects.Service": "fas fa-cogs",
         "services_and_projects.Project": "fas fa-project-diagram",
 
