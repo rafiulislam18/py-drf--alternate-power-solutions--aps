@@ -30,10 +30,14 @@ SECRET_KEY = os.getenv('DJANGO_SECRET_KEY')
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['*', 'deb8b3b7582e.ngrok-free.app', 'localhost:5173']
+ALLOWED_HOSTS = ['*', 'e1e8c8e08a1a.ngrok-free.app', 'localhost:5173']
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
+    "https://e1e8c8e08a1a.ngrok-free.app",
+]
+CSRF_TRUSTED_ORIGINS = [
+    "https://e1e8c8e08a1a.ngrok-free.app",
 ]
 
 
@@ -55,11 +59,12 @@ INSTALLED_APPS = [
     # 'drf_yasg',
 
     # Custom apps
+    'apps.blog',
     'apps.chatbot',
     'apps.quote_request',
+    'apps.request_solar_cleaning',
     'apps.subscription',
     'apps.services_and_projects',
-    'apps.blog',
 ]
 
 MIDDLEWARE = [
@@ -197,6 +202,9 @@ JAZZMIN_SETTINGS = {
 
         "quote_request.QuoteRequest": "fas fa-envelope-open-text",
 
+        "request_solar_cleaning.Client": "fas fa-user-friends",
+        "request_solar_cleaning.Request": "fas fa-solar-panel",
+
         "services_and_projects.Service": "fas fa-cogs",
         "services_and_projects.Project": "fas fa-project-diagram",
 
@@ -204,11 +212,6 @@ JAZZMIN_SETTINGS = {
         "subscription.Subscription": "fas fa-crown",
     },
 }
-
-# Stripe configurations
-STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
-STRIPE_PRICE_ID = os.getenv("STRIPE_PRICE_ID")
-STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
 
 # AI Chatbot configurations (Grok)
 CHATBOT_API_KEY = os.getenv("CHATBOT_API_KEY")
@@ -221,3 +224,17 @@ EMAIL_PORT = 587
 EMAIL_USE_TLS = True
 EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER')
 EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD')
+
+
+# PayFast Configuration
+# PAYFAST_SANDBOX = os.getenv('PAYFAST_SANDBOX', False)  # Set to True in Development/Testing, False in Production
+PAYFAST_SANDBOX = False  # Set to True in Development/Testing, False in Production
+PAYFAST_MERCHANT_ID = os.getenv('PAYFAST_MERCHANT_ID')
+PAYFAST_MERCHANT_KEY = os.getenv('PAYFAST_MERCHANT_KEY')
+PAYFAST_PASSPHRASE = os.getenv('PAYFAST_PASSPHRASE')
+
+# PayFast URLs - Update these based on your domain
+PAYFAST_RETURN_URL = os.getenv('PAYFAST_RETURN_URL')
+PAYFAST_CANCEL_URL = os.getenv('PAYFAST_CANCEL_URL')
+PAYFAST_NOTIFY_URL = os.getenv('PAYFAST_NOTIFY_URL')  # Must be publicly accessible. PayFast needs to be able to reach this URL to send payment notifications.
+PAYFAST_SOLAR_CLEANING_NOTIFY_URL = os.getenv('PAYFAST_SOLAR_CLEANING_NOTIFY_URL')  # Must be publicly accessible. PayFast needs to be able to reach this URL to send payment notifications.

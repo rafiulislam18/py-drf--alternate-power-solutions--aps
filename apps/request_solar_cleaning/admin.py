@@ -1,13 +1,11 @@
 from django.contrib import admin
-from .models import Client, Subscription
+from .models import Client, Request
 
-
-class SubscriptionInline(admin.TabularInline):  # or admin.StackedInline for full form
-    model = Subscription
-    extra = 0  # how many empty forms to show for adding new subscriptions
-    fields = ('address', 'payfast_token', 'payfast_payment_id', 'subscription_length', 'call_out_balance', 'is_active')
+class RequestInline(admin.TabularInline):  # or admin.StackedInline for full form
+    model = Request
+    extra = 0
+    fields = ('address', 'paid', 'payfast_token', 'payfast_payment_id', 'last_payment_date')
     readonly_fields = ('id', 'created_at', 'updated_at')
-
 
 @admin.register(Client)
 class ClientAdmin(admin.ModelAdmin):
@@ -16,9 +14,7 @@ class ClientAdmin(admin.ModelAdmin):
     search_fields = ('name', 'email', 'phone')
     list_filter = ('created_at', 'updated_at')
     ordering = ('-created_at',)
-
-    inlines = [SubscriptionInline]  # Show subscriptions under client
-
+    inlines = [RequestInline]
     fieldsets = (
         ('Client Information', {
             'fields': ('id', 'name', 'email', 'phone', 'note'),
@@ -28,20 +24,17 @@ class ClientAdmin(admin.ModelAdmin):
         }),
     )
 
-
-@admin.register(Subscription)
-class SubscriptionAdmin(admin.ModelAdmin):
-    list_display = ('id', 'client', 'address', 'payfast_token', 'payfast_payment_id', 'subscription_length', 'call_out_balance', 'is_active', 'last_payment_date', 'created_at', 'updated_at')
+@admin.register(Request)
+class RequestAdmin(admin.ModelAdmin):
+    list_display = ('id', 'client', 'address', 'paid', 'payfast_token', 'payfast_payment_id', 'last_payment_date', 'created_at', 'updated_at')
     readonly_fields = ('id', 'created_at', 'updated_at')
     search_fields = ('client__name', 'client__email', 'address', 'payfast_token', 'payfast_payment_id')
-    list_filter = ('is_active', 'created_at', 'updated_at')
+    list_filter = ('paid', 'created_at', 'updated_at')
     ordering = ('-created_at',)
-
     fieldsets = (
-        ('Subscription Details', {
+        ('Request Details', {
             'fields': (
-                'id', 'client', 'address',
-                'subscription_length', 'call_out_balance', 'is_active'
+                'id', 'client', 'address', 'paid'
             ),
         }),
         ('PayFast Info', {
