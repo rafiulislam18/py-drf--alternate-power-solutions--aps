@@ -13,6 +13,7 @@ class ServiceAdmin(admin.ModelAdmin):
     list_display = ("id", "title", "short_description", "appreciation_mark")
     search_fields = ("id", "title", "short_description", "long_description", "features", "appreciation_mark")
     ordering = ("-appreciation_mark", "title")  # Highest marks first
+    list_per_page = 10
 
     inlines = [ProjectInline]  # Show projects under service
 
@@ -22,3 +23,4 @@ class ProjectAdmin(admin.ModelAdmin):
     list_display = ("id", "title", "service", "location", "completion_date", "duration", "appreciation_mark")
     search_fields = ("id", "service__title", "title", "short_description", "long_description", "location", "duration", "features", "appreciation_mark")
     ordering = ("-appreciation_mark", "service__title", "title")  # Highest marks first, then Service titles
+    list_per_page = 10

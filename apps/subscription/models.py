@@ -15,6 +15,7 @@ class Client(models.Model):
 
 class Subscription(models.Model):
     client = models.ForeignKey(Client, on_delete=models.SET_NULL, blank=True, null=True, related_name='subscriptions')
+    inverter_type = models.CharField(max_length=255, blank=True, null=True)
     address = models.CharField(max_length=510, blank=True, null=True)
     
     # PayFast specific fields (replacing Stripe fields)

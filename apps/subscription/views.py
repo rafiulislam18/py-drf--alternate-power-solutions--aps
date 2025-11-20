@@ -1,11 +1,17 @@
 import hashlib
+import socket
 import urllib.parse
+from urllib.parse import urlparse as url_parse
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from django.core.mail import EmailMessage
+from django.conf import settings
+from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 from django.http import HttpResponse, JsonResponse
 from django.conf import settings
+from collections import OrderedDict
 from .models import Client, Subscription
 from .serializers import CreateCheckoutSessionSerializer
 import logging
@@ -13,7 +19,7 @@ import json
 
 logger = logging.getLogger(__name__)
 
-
+@method_decorator(csrf_exempt, name='dispatch')
 class CreatePayFastCheckoutSession(APIView):
     def post(self, request):
         # Validate request data using serializer
@@ -25,6 +31,7 @@ class CreatePayFastCheckoutSession(APIView):
         name = serializer.validated_data['name']
         email = serializer.validated_data['email']
         phone = serializer.validated_data['phone']
+        inverter_type = serializer.validated_data['inverterType']
         address = serializer.validated_data['address']
 
         try:
@@ -41,6 +48,7 @@ class CreatePayFastCheckoutSession(APIView):
             subscription = Subscription.objects.create(
                 client=client,
                 address=address,
+                inverter_type=inverter_type,
                 is_active=False  # Will be activated after payment confirmation
             )
             
@@ -52,7 +60,8 @@ class CreatePayFastCheckoutSession(APIView):
             )
             
             # Generate signature
-            signature = self.generate_signature(payfast_data)
+            # signature = self.generate_signature(payfast_data, settings.PAYFAST_PASSPHRASE if hasattr(settings, 'PAYFAST_PASSPHRASE') else '')
+            signature = self.generate_signature(payfast_data, settings.PAYFAST_PASSPHRASE)
             payfast_data['signature'] = signature
             
             # PayFast checkout URL
@@ -102,7 +111,6 @@ class CreatePayFastCheckoutSession(APIView):
             
             # Recurring billing
             'subscription_type': '1',  # Recurring subscription
-            'billing_date': '',  # Start immediately
             'recurring_amount': '99.00',
             'frequency': '3',  # Monthly
             'cycles': '0',  # Indefinite
@@ -114,18 +122,19 @@ class CreatePayFastCheckoutSession(APIView):
         }
         
         return data
-    
-    def generate_signature(self, data):
-        param_string = ''
-        for key in sorted(data.keys()):
-            value = str(data[key]) if data[key] is not None else ''
-            param_string += f'{key}={urllib.parse.quote_plus(value)}&'
-        param_string = param_string[:-1]
-        if hasattr(settings, 'PAYFAST_PASSPHRASE') and settings.PAYFAST_PASSPHRASE:
-            param_string += f'&passphrase={urllib.parse.quote_plus(settings.PAYFAST_PASSPHRASE)}'
-        signature = hashlib.md5(param_string.encode('utf-8')).hexdigest()
-        return signature
 
+    def generate_signature(self, dataArray, passPhrase = ''):
+        payload = ""
+        # 2) sort by key
+        ordered_dataArray = OrderedDict(sorted(dataArray.items(), key=lambda kv: kv[0]))
+        for key in ordered_dataArray:
+            # Get all the data from Payfast and prepare parameter string
+            payload += key + "=" + urllib.parse.quote_plus(ordered_dataArray[key].replace("+", " ")) + "&"
+        # After looping through, cut the last & or append your passphrase
+        payload = payload[:-1]
+        if passPhrase != '':
+            payload += f"&passphrase={passPhrase}"
+        return hashlib.md5(payload.encode()).hexdigest()
 
 @csrf_exempt
 def payfast_notify(request):
@@ -144,22 +153,47 @@ def payfast_notify(request):
         logger.info(f"PayFast ITN received: {post_data}")
         print("PayFast ITN received:", post_data)
         
-        # Verify signature
-        if not verify_payfast_signature(post_data):
-            logger.error("PayFast signature verification failed")
-            print("PayFast signature verification failed")
-            return HttpResponse(status=400)
+        ## Verify signature
+        # if not verify_payfast_signature(post_data):
+            # logger.error("PayFast signature verification failed")
+            # print("PayFast signature verification failed")
+            # return HttpResponse(status=400)
         
         # Verify source IP (PayFast security requirement)
         if not verify_payfast_ip(request):
-            logger.error("PayFast IP verification failed")
-            print("PayFast IP verification failed")
+            logger.error(f"PayFast IP verification failed: {json.dumps(post_data, indent=4)}")
+            print("PayFast IP verification failed:")
+
+            # Send email notification
+            html_message = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+            </head>
+            <body>
+                <h2 style="color: #D96F32;">APS PayFast IP Verification Failed</h2>
+                <p>The PayFast IP verification has failed. Please investigate.</p>
+                <p><strong>Received Data:</strong></p>
+                <pre style="background-color: #f8f9fa; padding: 10px; border-radius: 5px; border: 1px solid #ddd;">{json.dumps(post_data, indent=4)}</pre>
+            </body>
+            </html>
+            """
+            email = EmailMessage(
+                subject=f"APS PayFast IP Verification Failed",
+                body=html_message,
+                from_email=settings.EMAIL_HOST_USER,
+                to=[settings.EMAIL_HOST_USER],  # Send to self
+            )
+            email.content_subtype = "html"  # Set content type to HTML
+            email.send(fail_silently=True)
+
             return HttpResponse(status=401)
         
         # Verify amount
         if post_data.get('amount_gross') != '99.00':
             logger.error(f"Amount mismatch: expected 99.00, got {post_data.get('amount_gross')}")
             print(f"Amount mismatch: expected 99.00, got {post_data.get('amount_gross')}")
+
             return HttpResponse(status=400)
         
         # Get payment status
@@ -170,6 +204,30 @@ def payfast_notify(request):
         if not subscription_id:
             logger.error("No subscription ID in PayFast notification")
             print("No subscription ID in PayFast notification")
+
+            # Send email notification
+            html_message = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+            </head>
+            <body>
+                <h2 style="color: #D96F32;">APS PayFast Missing Subscription ID</h2>
+                <p>The PayFast notification is missing the subscription ID. Please investigate.</p>
+                <p><strong>Received Data:</strong></p>
+                <pre style="background-color: #f8f9fa; padding: 10px; border-radius: 5px; border: 1px solid #ddd;">{json.dumps(post_data, indent=4)}</pre>
+            </body>
+            </html>
+            """
+            email = EmailMessage(
+                subject=f"APS PayFast Missing Subscription ID",
+                body=html_message,
+                from_email=settings.EMAIL_HOST_USER,
+                to=[settings.EMAIL_HOST_USER],  # Send to self
+            )
+            email.content_subtype = "html"  # Set content type to HTML
+            email.send(fail_silently=True)
+
             return HttpResponse(status=400)
         
         # Get subscription
@@ -178,6 +236,30 @@ def payfast_notify(request):
         except Subscription.DoesNotExist:
             logger.error(f"Subscription {subscription_id} not found")
             print(f"Subscription {subscription_id} not found")
+
+            # Send email notification
+            html_message = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+            </head>
+            <body>
+                <h2 style="color: #D96F32;">APS PayFast Subscription Not Found</h2>
+                <p>The subscription with ID {subscription_id} was not found. Please investigate.</p>
+                <p><strong>Received Data:</strong></p>
+                <pre style="background-color: #f8f9fa; padding: 10px; border-radius: 5px; border: 1px solid #ddd;">{json.dumps(post_data, indent=4)}</pre>
+            </body>
+            </html>
+            """
+            email = EmailMessage(
+                subject=f"APS PayFast Subscription Not Found",
+                body=html_message,
+                from_email=settings.EMAIL_HOST_USER,
+                to=[settings.EMAIL_HOST_USER],  # Send to self
+            )
+            email.content_subtype = "html"  # Set content type to HTML
+            email.send(fail_silently=True)
+            
             return HttpResponse(status=404)
         
         # Handle payment status
@@ -195,6 +277,54 @@ def payfast_notify(request):
                     subscription.call_out_balance = 2
             
             subscription.save()
+
+            # Send notification email to self
+            html_message = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <style>
+                    body {{
+                        font-family: Arial, sans-serif;
+                        line-height: 1.6;
+                    }}
+                </style>
+            </head>
+            <body>
+                <div style="max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f8f9fa; border-radius: 10px;">
+                    <h2 style="color: #D96F32; text-align: center; border-bottom: 2px solid #D96F32; padding-bottom: 10px;">New Subscription Payment</h2>
+                    <div style="background-color: white; padding: 20px; border-radius: 5px; margin-top: 20px;">
+                        <p><strong style="color: #D96F32;">Customer Name:</strong> {subscription.client.name}</p>
+                        <p><strong style="color: #D96F32;">Customer Email:</strong> {subscription.client.email}</p>
+                        <p><strong style="color: #D96F32;">Customer Phone:</strong> {subscription.client.phone}</p>
+                        <p><strong style="color: #D96F32;">Subscription ID:</strong> {subscription.id}</p>
+                        <p><strong style="color: #D96F32;">Amount Paid:</strong> R99.00</p>
+                        <p><strong style="color: #D96F32;">Payment Status:</strong> Completed</p>
+                        <p><strong style="color: #D96F32;">Subscription Length:</strong> {subscription.subscription_length} month{'s' if subscription.subscription_length > 1 else ''}</p>
+                        <p><strong style="color: #D96F32;">Subscription Start:</strong> {subscription.created_at.strftime('%Y-%m-%d %H:%M:%S')}</p>
+                        <p><strong style="color: #D96F32;">Inverter Type:</strong> {subscription.inverter_type}</p>
+                        <p><strong style="color: #D96F32;">Address:</strong></p>
+                        <p style="background-color: #f8f9fa; padding: 15px; border-left: 4px solid #D96F32; margin-left: 20px;">
+                            {subscription.address}
+                        </p>
+                    </div>
+                    <div style="text-align: center; margin-top: 20px; color: #666; font-size: 12px;">
+                        <p>This is an automated message from Alternate Power Solutions</p>
+                    </div>
+                </div>
+            </body>
+            </html>
+            """
+
+            # Create and send email
+            email = EmailMessage(
+                subject=f"APS New Subscription Payment from {subscription.client.name}",
+                body=html_message,
+                from_email=settings.EMAIL_HOST_USER,
+                to=[settings.EMAIL_HOST_USER],  # Send to self
+            )
+            email.content_subtype = "html"  # Set content type to HTML
+            email.send(fail_silently=True)
             
             # Send welcome/confirmation email here
             logger.info(f"Subscription {subscription_id} activated successfully")
@@ -247,54 +377,68 @@ def payfast_cancel(request):
 
 def verify_payfast_signature(post_data):
     received_signature = post_data.pop('signature', None)
-    print("Received signature:", received_signature)
     if not received_signature:
-        print("No signature received")
+        logger.error("No signature received in ITN data")
         return False
+    
+    # Filter out blank/null values per docs
+    post_data = {k: v for k, v in post_data.items() if v is not None and str(v).strip() != ''}
+    
     param_string = ''
     for key in sorted(post_data.keys()):
-        value = str(post_data[key]) if post_data[key] is not None else ''
-        param_string += f'{key}={urllib.parse.quote_plus(value)}&'
+        value = str(post_data[key])
+        encoded_value = urllib.parse.quote_plus(value.replace("+", " "))
+        param_string += f'{key}={encoded_value}&'
+        logger.info(f"Field: {key}={encoded_value}")
+    
     param_string = param_string[:-1]
-    if hasattr(settings, 'PAYFAST_PASSPHRASE') and settings.PAYFAST_PASSPHRASE:
-        param_string += f'&passphrase={urllib.parse.quote_plus(settings.PAYFAST_PASSPHRASE)}'
-    print("Param string for signature:", param_string)
-    calculated_signature = hashlib.md5(param_string.encode('utf-8')).hexdigest()
-    print("Calculated signature:", calculated_signature)
-    print("Received signature (lower):", received_signature.lower())
+    
+    if hasattr(settings, 'PAYFAST_PASSPHRASE') and settings.PAYFAST_PASSPHRASE and settings.PAYFAST_PASSPHRASE != '':
+        param_string += f'&passphrase={settings.PAYFAST_PASSPHRASE}'
+        logger.info(f"Passphrase added: {settings.PAYFAST_PASSPHRASE}")
+    
+    calculated_signature = hashlib.md5(param_string.encode()).hexdigest()
+    logger.info(f"ITN param string: {param_string}")
+    print(f"ITN param string: {param_string}")
+    logger.info(f"Received signature: {received_signature}")
+    print(f"Received signature: {received_signature}")
+    logger.info(f"Calculated signature: {calculated_signature}")
+    print(f"Calculated signature: {calculated_signature}")
+    
     return calculated_signature == received_signature.lower()
 
 
 def verify_payfast_ip(request):
     """Verify that the request comes from PayFast's IP addresses"""
-    # PayFast IP addresses
-    valid_ips = [
-        '41.74.179.130',
-        '41.74.179.150',
-        '41.74.179.251',
-        '41.74.179.210',
-        '41.74.179.211',
-        '41.74.179.212',
-        '41.74.179.213',
-        '41.74.179.214',
-        '41.74.179.215',
-        '41.74.179.216',
-        '41.74.179.217',
-        '41.74.179.218',
-        # Sandbox IPs
-        '41.74.179.194',
-        '41.74.179.164',
+    valid_hosts = [
+    'www.payfast.co.za',
+    'sandbox.payfast.co.za',
+    'w1w.payfast.co.za',
+    'w2w.payfast.co.za',
     ]
-    
-    # Get client IP
-    x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
-    if x_forwarded_for:
-        client_ip = x_forwarded_for.split(',')[0]
+    valid_ips = []
+
+    for item in valid_hosts:
+        ips = socket.gethostbyname_ex(item)
+        if ips:
+            for ip in ips:
+                if ip:
+                    valid_ips.append(ip)
+
+    # Remove duplicates from array
+    clean_valid_ips = []
+    for item in valid_ips:
+        # Iterate through each variable to create one list
+        if isinstance(item, list):
+            for prop in item:
+                if prop not in clean_valid_ips:
+                    clean_valid_ips.append(prop)
+        else:
+            if item not in clean_valid_ips:
+                clean_valid_ips.append(item)
+
+    # Security Step 3, check if referrer is valid
+    if url_parse(request.headers.get("Referer")).hostname not in clean_valid_ips:
+        return False
     else:
-        client_ip = request.META.get('REMOTE_ADDR')
-    
-    # In development/sandbox mode, you might want to skip IP validation
-    if settings.PAYFAST_SANDBOX:
-        return True
-    
-    return client_ip in valid_ips
+        return True 

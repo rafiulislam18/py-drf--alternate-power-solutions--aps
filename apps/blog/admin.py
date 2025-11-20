@@ -13,6 +13,7 @@ class BlogCategoryAdmin(admin.ModelAdmin):
     list_display = ('id', 'name', 'appreciation_mark')
     search_fields = ('name',)
     ordering = ('-appreciation_mark', 'name')
+    list_per_page = 10
     inlines = [BlogInline]
 
 
@@ -22,3 +23,4 @@ class BlogAdmin(admin.ModelAdmin):
     list_filter = ('category', 'date')
     search_fields = ('title', 'category__name', 'short_description', 'long_description', 'author')
     ordering = ('-appreciation_mark', 'title')
+    list_per_page = 10

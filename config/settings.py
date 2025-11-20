@@ -30,15 +30,87 @@ SECRET_KEY = os.getenv('DJANGO_SECRET_KEY')
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['*', 'e1e8c8e08a1a.ngrok-free.app', 'localhost:5173']
+ALLOWED_HOSTS = [
+    'alter-power.co.za', 
+    'www.alter-power.co.za', 
+    'deb8b3b7582e.ngrok-free.app', 
+    'localhost:5173', 
+    'localhost:8000', 
+    '127.0.0.1:8000', 
+    'localhost', 
+    '127.0.0.1', 
+    '31.97.114.215',
+    '0.0.0.0',
+    'srv934843.hstgr.cloud',
+    'autoconfig.srv934843.hstgr.cloud',
+    'mail.srv934843.hstgr.cloud'
+]
+
+CORS_ALLOW_ALL_ORIGINS = True
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
-    "https://e1e8c8e08a1a.ngrok-free.app",
+
+    # '31.97.114.215',
+    # '31.97.114.215:8000',
+    # '31.97.114.215:3000',
+    'http://31.97.114.215',
+    'http://31.97.114.215:8000',
+    'http://31.97.114.215:3000',
+    'https://31.97.114.215',
+    'https://31.97.114.215:8000',
+    'https://31.97.114.215:3000',
+    # 'alter-power.co.za',
+    'http://alter-power.co.za',
+    'https://alter-power.co.za',
+    # 'www.alter-power.co.za',
+    'http://www.alter-power.co.za',
+    'https://www.alter-power.co.za',
+    # 'alter-power.co.za:3000',
+    'http://alter-power.co.za:3000',
+    'https://alter-power.co.za:3000',
+    # 'www.alter-power.co.za:3000',
+    'http://www.alter-power.co.za:3000',
+    'https://www.alter-power.co.za:3000',
+    # 'alter-power.co.za:8000',
+    'http://alter-power.co.za:8000',
+    'https://alter-power.co.za:8000',
+    # 'www.alter-power.co.za:8000',
+    'http://www.alter-power.co.za:8000',
+    'https://www.alter-power.co.za:8000',
 ]
+
 CSRF_TRUSTED_ORIGINS = [
-    "https://e1e8c8e08a1a.ngrok-free.app",
+    'http://31.97.114.215',
+    'http://31.97.114.215:8000',
+    'http://31.97.114.215:3000',
+    'https://31.97.114.215',
+    'https://31.97.114.215:8000',
+    'https://31.97.114.215:3000',
+    'http://alter-power.co.za',
+    'https://alter-power.co.za',
+    'http://www.alter-power.co.za',
+    'https://www.alter-power.co.za',
+    'http://alter-power.co.za:3000',
+    'https://alter-power.co.za:3000',
+    'http://www.alter-power.co.za:3000',
+    'https://www.alter-power.co.za:3000',
+    'http://alter-power.co.za:8000',
+    'https://alter-power.co.za:8000',
+    'http://www.alter-power.co.za:8000',
+    'https://www.alter-power.co.za:8000',
 ]
+
+CORS_ALLOW_METHODS = [
+    "DELETE",
+    "GET",
+    "OPTIONS",
+    "PATCH",
+    "POST",
+    "PUT",
+]
+
+CORS_ALLOW_HEADERS = ['*']
 
 
 # Application definition
@@ -68,6 +140,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    'whitenoise.middleware.WhiteNoiseMiddleware',  # For serving static files in production
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -77,6 +150,8 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
+
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 ROOT_URLCONF = 'config.urls'
 
@@ -144,9 +219,15 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = 'static/'
-STATIC_ROOT = BASE_DIR / 'staticfiles'
-STATICFILES_DIRS = [BASE_DIR / 'static']
+# STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+STATIC_ROOT = "/home/backend/staticfiles"
 
+# For additional static file directories (optional)
+STATICFILES_DIRS = [
+    os.path.join(BASE_DIR, 'static'),  # your custom static folder during development
+]
+
+# Media files (User uploads)
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
@@ -154,6 +235,11 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+
+SECURE_SSL_REDIRECT = False  # Nginx handles redirects
+SESSION_COOKIE_SECURE = True  # Cookies over HTTPS
+CSRF_COOKIE_SECURE = True  # CSRF cookies over HTTPS
 
 
 REST_FRAMEWORK = {
@@ -166,6 +252,81 @@ REST_FRAMEWORK = {
 #     'USE_SESSION_AUTH': False,
 #     'JSON_EDITOR': True,
 # }
+
+
+LOGS_DIR = os.path.join(BASE_DIR, 'logs')
+os.makedirs(LOGS_DIR, exist_ok=True)
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '[{levelname}] [{asctime}] [{module}] [{pathname}] [{lineno}] >> {message}',
+            'style': '{',
+        },
+        'simple': {
+            'format': '[{levelname}] >> {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'level': 'INFO',
+            'class': 'logging.StreamHandler',
+            'formatter': 'simple',
+        },
+        'file': {
+            'level': 'INFO',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': os.path.join(LOGS_DIR, 'prod.log'),
+            'maxBytes': 1024 * 1024 * 5,  # 5 MB
+            'backupCount': 5,  # Keep 5 backup/old-log files
+            'formatter': 'verbose',
+        },
+    },
+    'loggers': {
+        '': {  # Root logger
+            'handlers': ['console', 'file'],
+            'level': 'WARNING',
+            'propagate': True,
+        },
+        'django': {
+            'handlers': ['console', 'file'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
+        'apps.blog': {
+            'handlers': ['console', 'file'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
+        'apps.chatbot': {
+            'handlers': ['console', 'file'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
+        'apps.quote_request': {
+            'handlers': ['console', 'file'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
+        'apps.request_solar_cleaning': {
+            'handlers': ['console', 'file'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
+        'apps.subscription': {
+            'handlers': ['console', 'file'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
+        'apps.services_and_projects': {
+            'handlers': ['console', 'file'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
+    }
+}
 
 
 JAZZMIN_SETTINGS = {

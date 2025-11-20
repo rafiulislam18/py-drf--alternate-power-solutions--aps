@@ -9,3 +9,4 @@ class QuoteRequestAdmin(admin.ModelAdmin):
     search_fields = ('name', 'email', 'phone', 'message', 'service__title')
     readonly_fields = ('created_at',)
     ordering = ('-created_at',)
+    list_per_page = 10

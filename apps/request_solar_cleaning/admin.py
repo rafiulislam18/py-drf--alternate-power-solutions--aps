@@ -14,6 +14,8 @@ class ClientAdmin(admin.ModelAdmin):
     search_fields = ('name', 'email', 'phone')
     list_filter = ('created_at', 'updated_at')
     ordering = ('-created_at',)
+    list_per_page = 10
+
     inlines = [RequestInline]
     fieldsets = (
         ('Client Information', {
@@ -31,6 +33,8 @@ class RequestAdmin(admin.ModelAdmin):
     search_fields = ('client__name', 'client__email', 'address', 'payfast_token', 'payfast_payment_id')
     list_filter = ('paid', 'created_at', 'updated_at')
     ordering = ('-created_at',)
+    list_per_page = 10
+    
     fieldsets = (
         ('Request Details', {
             'fields': (
