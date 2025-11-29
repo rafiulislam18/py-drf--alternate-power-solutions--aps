@@ -21,6 +21,8 @@ class Project(models.Model):
     short_description = models.TextField()
     long_description = models.TextField()
     image = models.ImageField(upload_to="projects/")
+    image_2 = models.ImageField(upload_to="projects/", null=True, blank=True)
+    image_3 = models.ImageField(upload_to="projects/", null=True, blank=True)
     location = models.CharField(max_length=255)
     completion_date = models.DateField()
     duration = models.CharField(max_length=50)  # e.g. "3 months"
