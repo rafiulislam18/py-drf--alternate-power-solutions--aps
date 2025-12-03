@@ -43,7 +43,12 @@ ALLOWED_HOSTS = [
     '0.0.0.0',
     'srv934843.hstgr.cloud',
     'autoconfig.srv934843.hstgr.cloud',
-    'mail.srv934843.hstgr.cloud'
+    'mail.srv934843.hstgr.cloud',
+    'cpcontacts.srv934843.hstgr.cloud',
+    'cpcalendars.srv934843.hstgr.cloud',
+    'ipv6.srv934843.hstgr.cloud',
+    'autodiscover.srv934843.hstgr.cloud',
+    'whm.srv934843.hstgr.cloud',
 ]
 
 CORS_ALLOW_ALL_ORIGINS = True
