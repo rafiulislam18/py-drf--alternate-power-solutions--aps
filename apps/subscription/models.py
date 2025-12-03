@@ -18,7 +18,7 @@ class Subscription(models.Model):
     inverter_type = models.CharField(max_length=255, blank=True, null=True)
     address = models.CharField(max_length=510, blank=True, null=True)
     
-    # PayFast specific fields (replacing Stripe fields)
+    # PayFast specific fields
     payfast_token = models.CharField(max_length=255, blank=True, null=True)  # For managing recurring payments
     payfast_payment_id = models.CharField(max_length=255, blank=True, null=True)  # PayFast's payment ID
     

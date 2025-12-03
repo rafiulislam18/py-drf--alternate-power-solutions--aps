@@ -1,9 +1,7 @@
-from django.shortcuts import render
 import hashlib
 import socket
 import urllib.parse
 from urllib.parse import urlparse as url_parse
-import logging
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -14,69 +12,119 @@ from django.views.decorators.csrf import csrf_exempt
 from django.http import HttpResponse, JsonResponse
 from django.conf import settings
 from collections import OrderedDict
-from .models import Client, Request
-from .serializers import CreateSolarCleaningCheckoutSerializer
+from .models import Client, Subscription
+from .serializers import CreateCheckoutSessionSerializer
+import logging
+import json
 
 logger = logging.getLogger(__name__)
 
 @method_decorator(csrf_exempt, name='dispatch')
-class CreateSolarCleaningCheckoutSession(APIView):
+class CreatePayFastCheckoutSession(APIView):
     def post(self, request):
-        serializer = CreateSolarCleaningCheckoutSerializer(data=request.data)
+        # Validate request data using serializer
+        serializer = CreateCheckoutSessionSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+        # Get validated data
         name = serializer.validated_data['name']
         email = serializer.validated_data['email']
         phone = serializer.validated_data['phone']
+        inverter_type = serializer.validated_data['inverterType']
+        inverter_size = serializer.validated_data['inverterSize']
+        installed_panels_count = serializer.validated_data['installedPanelsCount']
         address = serializer.validated_data['address']
 
         try:
-            client, _ = Client.objects.get_or_create(
+            # Get or create Client
+            client, created = Client.objects.get_or_create(
                 email=email,
-                defaults={'name': name, 'phone': phone}
+                defaults={
+                    'name': name,
+                    'phone': phone
+                }
             )
-            req = Request.objects.create(
+            
+            # Create subscription record (will be activated after payment confirmation)
+            subscription = Subscription.objects.create(
                 client=client,
                 address=address,
-                paid=False
+                inverter_type=inverter_type,
+                inverter_size=inverter_size,
+                installed_panels_count=installed_panels_count,
+                is_active=False  # Will be activated after payment confirmation
             )
-            payfast_data = self.generate_payfast_data(name, email, req.id)
+            
+            # Generate PayFast payment data
+            payfast_data = self.generate_payfast_data(
+                name=name,
+                email=email,
+                subscription_id=subscription.id
+            )
+            
+            # Generate signature
             # signature = self.generate_signature(payfast_data, settings.PAYFAST_PASSPHRASE if hasattr(settings, 'PAYFAST_PASSPHRASE') else '')
             signature = self.generate_signature(payfast_data, settings.PAYFAST_PASSPHRASE)
             payfast_data['signature'] = signature
-
-            payfast_url = 'https://sandbox.payfast.co.za/eng/process' if settings.PAYFAST_SANDBOX else 'https://www.payfast.co.za/eng/process'
-
+            
+            # PayFast checkout URL
+            if settings.PAYFAST_SANDBOX:
+                payfast_url = 'https://sandbox.payfast.co.za/eng/process'
+            else:
+                payfast_url = 'https://www.payfast.co.za/eng/process'
+            
             return Response({
                 'url': payfast_url,
                 'data': payfast_data,
                 'method': 'POST'
             })
+            
         except Exception as e:
             logger.error(f"Error creating PayFast checkout session: {str(e)}")
+            print(f"Error creating PayFast checkout session: {str(e)}")
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
-
-    def generate_payfast_data(self, name, email, request_id):
+    
+    def generate_payfast_data(self, name, email, subscription_id):
+        """Generate PayFast payment form data"""
+        
+        # Split name into first and last name
         name_parts = name.split(' ', 1)
         first_name = name_parts[0]
         last_name = name_parts[1] if len(name_parts) > 1 else ''
+        
         data = {
+            # Merchant details
             'merchant_id': settings.PAYFAST_MERCHANT_ID,
             'merchant_key': settings.PAYFAST_MERCHANT_KEY,
+            
+            # Buyer details
             'name_first': first_name,
             'name_last': last_name,
             'email_address': email,
-            'm_payment_id': str(request_id),
-            'amount': '99.00',  # Example price for solar cleaning
-            'item_name': 'Solar Cleaning',
-            'item_description': 'One-time solar panel cleaning service',
+            
+            # Transaction details
+            'm_payment_id': str(subscription_id),
+            'amount': '199.00',  # R199 per month
+            'item_name': 'Monthly Subscription',
+            'item_description': 'Recurring monthly subscription',
+            
+            # Transaction options
             'email_confirmation': '1',
             'confirmation_address': email,
+            
+            # Recurring billing
+            'subscription_type': '1',  # Recurring subscription
+            'recurring_amount': '199.00',
+            'frequency': '3',  # Monthly
+            'cycles': '0',  # Indefinite
+            
+            # Return URLs
             'return_url': settings.PAYFAST_RETURN_URL,
             'cancel_url': settings.PAYFAST_CANCEL_URL,
             'notify_url': settings.PAYFAST_SOLAR_CLEANING_NOTIFY_URL,
         }
+        
         return data
 
     def generate_signature(self, dataArray, passPhrase = ''):
@@ -94,59 +142,141 @@ class CreateSolarCleaningCheckoutSession(APIView):
 
 @csrf_exempt
 def payfast_notify(request):
-    print("Step 1: Entered payfast_notify")
+    """
+    PayFast ITN (Instant Transaction Notification) handler
+    This is called by PayFast to confirm payment status
+    """
     if request.method != 'POST':
-        print("Step 2: Not a POST request")
         return HttpResponse(status=405)
+    
     try:
+        # Get POST data
         post_data = request.POST.dict()
-        print(f"Step 3: Raw POST data: {post_data}")
-
-        ## Signature verification
-        # result_signature = verify_payfast_signature(post_data.copy())
-        # print(f"Step 4: Signature verification result: {result_signature}")
-        # if not result_signature:
-            # print("Step 5: Signature verification failed")
+        
+        # Log the notification for debugging
+        logger.info(f"PayFast ITN received: {post_data}")
+        print("PayFast ITN received:", post_data)
+        
+        ## Verify signature
+        # if not verify_payfast_signature(post_data):
+            # logger.error("PayFast signature verification failed")
+            # print("PayFast signature verification failed")
             # return HttpResponse(status=400)
+        
+        # Verify source IP (PayFast security requirement)
+        if not verify_payfast_ip(request):
+            logger.error(f"PayFast IP verification failed: {json.dumps(post_data, indent=4)}")
+            print("PayFast IP verification failed:")
 
-        # IP verification
-        result_ip = verify_payfast_ip(request)
-        print(f"Step 6: IP verification result: {result_ip}")
-        if not result_ip:
-            print("Step 7: IP verification failed")
+            # Send email notification
+            html_message = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+            </head>
+            <body>
+                <h2 style="color: #D96F32;">APS PayFast IP Verification Failed</h2>
+                <p>The PayFast IP verification has failed. Please investigate.</p>
+                <p><strong>Received Data:</strong></p>
+                <pre style="background-color: #f8f9fa; padding: 10px; border-radius: 5px; border: 1px solid #ddd;">{json.dumps(post_data, indent=4)}</pre>
+            </body>
+            </html>
+            """
+            email = EmailMessage(
+                subject=f"APS PayFast IP Verification Failed",
+                body=html_message,
+                from_email=settings.EMAIL_HOST_USER,
+                to=[settings.EMAIL_HOST_USER],  # Send to self
+            )
+            email.content_subtype = "html"  # Set content type to HTML
+            email.send(fail_silently=True)
+
             return HttpResponse(status=401)
+        
+        # Verify amount
+        if post_data.get('amount_gross') != '199.00':
+            logger.error(f"Amount mismatch: expected 199.00, got {post_data.get('amount_gross')}")
+            print(f"Amount mismatch: expected 199.00, got {post_data.get('amount_gross')}")
 
-        # Amount check
-        amount_gross = post_data.get('amount_gross')
-        print(f"Step 8: amount_gross from PayFast: {amount_gross}")
-        if amount_gross != '99.00':
-            print(f"Step 9: Amount mismatch: expected 99.00, got {amount_gross}")
             return HttpResponse(status=400)
-
-        # Payment status and request ID
+        
+        # Get payment status
         payment_status = post_data.get('payment_status')
-        request_id = post_data.get('m_payment_id')
-        token = post_data.get('token')
-        print(f"Step 10: payment_status={payment_status}, request_id={request_id}, token={token}")
-        if not request_id:
-            print("Step 11: No request ID in PayFast notification")
+        subscription_id = post_data.get('m_payment_id')
+        token = post_data.get('token')  # PayFast token for recurring payments
+        
+        if not subscription_id:
+            logger.error("No subscription ID in PayFast notification")
+            print("No subscription ID in PayFast notification")
+
+            # Send email notification
+            html_message = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+            </head>
+            <body>
+                <h2 style="color: #D96F32;">APS PayFast Missing Subscription ID</h2>
+                <p>The PayFast notification is missing the subscription ID. Please investigate.</p>
+                <p><strong>Received Data:</strong></p>
+                <pre style="background-color: #f8f9fa; padding: 10px; border-radius: 5px; border: 1px solid #ddd;">{json.dumps(post_data, indent=4)}</pre>
+            </body>
+            </html>
+            """
+            email = EmailMessage(
+                subject=f"APS PayFast Missing Subscription ID",
+                body=html_message,
+                from_email=settings.EMAIL_HOST_USER,
+                to=[settings.EMAIL_HOST_USER],  # Send to self
+            )
+            email.content_subtype = "html"  # Set content type to HTML
+            email.send(fail_silently=True)
+
             return HttpResponse(status=400)
-
-        # Fetch request object
+        
+        # Get subscription
         try:
-            req = Request.objects.get(id=request_id)
-            print(f"Step 12: Found Request object: {req}")
-        except Request.DoesNotExist:
-            print(f"Step 13: Request {request_id} not found")
-            return HttpResponse(status=404)
+            subscription = Subscription.objects.get(id=subscription_id)
+        except Subscription.DoesNotExist:
+            logger.error(f"Subscription {subscription_id} not found")
+            print(f"Subscription {subscription_id} not found")
 
-        # Update payment status
+            # Send email notification
+            html_message = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+            </head>
+            <body>
+                <h2 style="color: #D96F32;">APS PayFast Subscription Not Found</h2>
+                <p>The subscription with ID {subscription_id} was not found. Please investigate.</p>
+                <p><strong>Received Data:</strong></p>
+                <pre style="background-color: #f8f9fa; padding: 10px; border-radius: 5px; border: 1px solid #ddd;">{json.dumps(post_data, indent=4)}</pre>
+            </body>
+            </html>
+            """
+            email = EmailMessage(
+                subject=f"APS PayFast Subscription Not Found",
+                body=html_message,
+                from_email=settings.EMAIL_HOST_USER,
+                to=[settings.EMAIL_HOST_USER],  # Send to self
+            )
+            email.content_subtype = "html"  # Set content type to HTML
+            email.send(fail_silently=True)
+            
+            return HttpResponse(status=404)
+        
+        # Handle payment status
         if payment_status == 'COMPLETE':
-            req.paid = True
-            req.payfast_token = token
-            req.payfast_payment_id = post_data.get('pf_payment_id')
-            req.save()
-            print(f"Step 14: Solar cleaning request {request_id} marked as paid")
+            # Payment successful
+            subscription.is_active = True
+            subscription.payfast_token = token  # Store token for subscription management
+            
+            # Increment subscription length for recurring payments
+            if post_data.get('item_name') == 'Subscription Payment':
+                subscription.subscription_length += 1
+            
+            subscription.save()
 
             # Send notification email to self
             html_message = f"""
@@ -162,18 +292,22 @@ def payfast_notify(request):
             </head>
             <body>
                 <div style="max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f8f9fa; border-radius: 10px;">
-                    <h2 style="color: #D96F32; text-align: center; border-bottom: 2px solid #D96F32; padding-bottom: 10px;">New Solar Cleaning Payment</h2>
+                    <h2 style="color: #D96F32; text-align: center; border-bottom: 2px solid #D96F32; padding-bottom: 10px;">New Subscription Payment</h2>
                     <div style="background-color: white; padding: 20px; border-radius: 5px; margin-top: 20px;">
-                        <p><strong style="color: #D96F32;">Customer Name:</strong> {req.client.name}</p>
-                        <p><strong style="color: #D96F32;">Customer Email:</strong> {req.client.email}</p>
-                        <p><strong style="color: #D96F32;">Customer Phone:</strong> {req.client.phone}</p>
-                        <p><strong style="color: #D96F32;">Request ID:</strong> {req.id}</p>
+                        <p><strong style="color: #D96F32;">Customer Name:</strong> {subscription.client.name}</p>
+                        <p><strong style="color: #D96F32;">Customer Email:</strong> {subscription.client.email}</p>
+                        <p><strong style="color: #D96F32;">Customer Phone:</strong> {subscription.client.phone}</p>
+                        <p><strong style="color: #D96F32;">Subscription ID:</strong> {subscription.id}</p>
                         <p><strong style="color: #D96F32;">Amount Paid:</strong> R99.00</p>
                         <p><strong style="color: #D96F32;">Payment Status:</strong> Completed</p>
-                        <p><strong style="color: #D96F32;">Request Created:</strong> {req.created_at.strftime('%Y-%m-%d %H:%M:%S')}</p>
+                        <p><strong style="color: #D96F32;">Subscription Length:</strong> {subscription.subscription_length} month{'s' if subscription.subscription_length > 1 else ''}</p>
+                        <p><strong style="color: #D96F32;">Subscription Start:</strong> {subscription.created_at.strftime('%Y-%m-%d %H:%M:%S')}</p>
+                        <p><strong style="color: #D96F32;">Inverter Type:</strong> {subscription.inverter_type}</p>
+                        <p><strong style="color: #D96F32;">Inverter Size:</strong> {subscription.inverter_size}</p>
+                        <p><strong style="color: #D96F32;">Installed Panels Count:</strong> {subscription.installed_panels_count}</p>
                         <p><strong style="color: #D96F32;">Address:</strong></p>
                         <p style="background-color: #f8f9fa; padding: 15px; border-left: 4px solid #D96F32; margin-left: 20px;">
-                            {req.address}
+                            {subscription.address}
                         </p>
                     </div>
                     <div style="text-align: center; margin-top: 20px; color: #666; font-size: 12px;">
@@ -186,7 +320,7 @@ def payfast_notify(request):
 
             # Create and send email
             email = EmailMessage(
-                subject=f"APS New Solar Cleaning Payment from {req.client.name}",
+                subject=f"APS New Subscription Payment from {subscription.client.name}",
                 body=html_message,
                 from_email=settings.EMAIL_HOST_USER,
                 to=[settings.EMAIL_HOST_USER],  # Send to self
@@ -194,22 +328,54 @@ def payfast_notify(request):
             email.content_subtype = "html"  # Set content type to HTML
             email.send(fail_silently=True)
             
+            # Send welcome/confirmation email here
+            logger.info(f"Subscription {subscription_id} activated successfully")
+            print(f"Subscription {subscription_id} activated successfully")
+            
+        elif payment_status == 'CANCELLED':
+            # Subscription cancelled
+            subscription.is_active = False
+            subscription.save()
+            logger.info(f"Subscription {subscription_id} cancelled")
+            print(f"Subscription {subscription_id} cancelled")
+            
         elif payment_status == 'FAILED':
-            print(f"Step 15: Payment failed for request {request_id}")
-
-        print("Step 16: Finished processing PayFast ITN")
+            # Payment failed
+            logger.warning(f"Payment failed for subscription {subscription_id}")
+            print(f"Payment failed for subscription {subscription_id}")
+            
         return HttpResponse(status=200)
+        
     except Exception as e:
-        print(f"Step 17: Error processing PayFast ITN: {str(e)}")
+        logger.error(f"Error processing PayFast ITN: {str(e)}")
+        print(f"Error processing PayFast ITN: {str(e)}")
         return HttpResponse(status=500)
+
 
 @csrf_exempt
 def payfast_return(request):
-    return JsonResponse({'status': 'success', 'message': 'Payment received. We will contact you soon.'})
+    """
+    Handle return from PayFast after payment
+    This is where users are redirected after completing payment
+    """
+    # You can customize this based on your frontend needs
+    return JsonResponse({
+        'status': 'success',
+        'message': 'Payment processing. You will receive a confirmation email shortly.'
+    })
+
 
 @csrf_exempt
 def payfast_cancel(request):
-    return JsonResponse({'status': 'cancelled', 'message': 'Payment was cancelled.'})
+    """
+    Handle cancellation from PayFast
+    This is where users are redirected if they cancel payment
+    """
+    return JsonResponse({
+        'status': 'cancelled',
+        'message': 'Payment was cancelled.'
+    })
+
 
 def verify_payfast_signature(post_data):
     received_signature = post_data.pop('signature', None)
@@ -242,6 +408,7 @@ def verify_payfast_signature(post_data):
     print(f"Calculated signature: {calculated_signature}")
     
     return calculated_signature == received_signature.lower()
+
 
 def verify_payfast_ip(request):
     """Verify that the request comes from PayFast's IP addresses"""

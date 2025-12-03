@@ -43,12 +43,7 @@ ALLOWED_HOSTS = [
     '0.0.0.0',
     'srv934843.hstgr.cloud',
     'autoconfig.srv934843.hstgr.cloud',
-    'mail.srv934843.hstgr.cloud',
-    'cpcontacts.srv934843.hstgr.cloud',
-    'cpcalendars.srv934843.hstgr.cloud',
-    'ipv6.srv934843.hstgr.cloud',
-    'autodiscover.srv934843.hstgr.cloud',
-    'whm.srv934843.hstgr.cloud',
+    'mail.srv934843.hstgr.cloud'
 ]
 
 CORS_ALLOW_ALL_ORIGINS = True
@@ -369,13 +364,13 @@ JAZZMIN_SETTINGS = {
         "quote_request.QuoteRequest": "fas fa-envelope-open-text",
 
         "request_solar_cleaning.Client": "fas fa-user-friends",
-        "request_solar_cleaning.Request": "fas fa-solar-panel",
+        "request_solar_cleaning.Subscription": "fas fa-screwdriver-wrench",
 
         "services_and_projects.Service": "fas fa-cogs",
         "services_and_projects.Project": "fas fa-project-diagram",
 
-        "subscription.Client": "fas fa-hands-helping",
-        "subscription.Subscription": "fas fa-crown",
+        "subscription.Client": "fas fa-user-friends",
+        "subscription.Subscription": "fas fa-desktop",
     },
 }
 
