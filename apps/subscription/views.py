@@ -179,7 +179,7 @@ def payfast_notify(request):
             </html>
             """
             email = EmailMessage(
-                subject=f"APS PayFast IP Verification Failed",
+                subject=f"APS PayFast IP Verification Failed (Inverter & Battery Monitoring Plan)",
                 body=html_message,
                 from_email=settings.EMAIL_HOST_USER,
                 to=[settings.EMAIL_HOST_USER],  # Send to self
@@ -220,7 +220,7 @@ def payfast_notify(request):
             </html>
             """
             email = EmailMessage(
-                subject=f"APS PayFast Missing Subscription ID",
+                subject=f"APS PayFast Missing Subscription ID (Inverter & Battery Monitoring Plan)",
                 body=html_message,
                 from_email=settings.EMAIL_HOST_USER,
                 to=[settings.EMAIL_HOST_USER],  # Send to self
@@ -252,7 +252,7 @@ def payfast_notify(request):
             </html>
             """
             email = EmailMessage(
-                subject=f"APS PayFast Subscription Not Found",
+                subject=f"APS PayFast Subscription Not Found (Inverter & Battery Monitoring Plan)",
                 body=html_message,
                 from_email=settings.EMAIL_HOST_USER,
                 to=[settings.EMAIL_HOST_USER],  # Send to self
@@ -318,7 +318,7 @@ def payfast_notify(request):
 
             # Create and send email
             email = EmailMessage(
-                subject=f"APS New Subscription Payment from {subscription.client.name}",
+                subject=f"APS New Subscription Payment from {subscription.client.name} (Inverter & Battery Monitoring Plan)",
                 body=html_message,
                 from_email=settings.EMAIL_HOST_USER,
                 to=[settings.EMAIL_HOST_USER],  # Send to self
