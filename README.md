@@ -1,4 +1,4 @@
-# BrightSpark Backend Setup 🚀
+# APS Website Backend Setup 🚀
 
 ## 1. Create and Activate Virtual Environment 🧩
 
