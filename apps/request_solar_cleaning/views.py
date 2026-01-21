@@ -273,7 +273,7 @@ def payfast_notify(request):
             subscription.payfast_token = token  # Store token for subscription management
             
             # Increment subscription length for recurring payments
-            if post_data.get('item_name') == 'Subscription Payment':
+            if post_data.get('item_name') == 'Monthly Subscription':
                 subscription.subscription_length += 1
             
             subscription.save()
