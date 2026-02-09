@@ -41,6 +41,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'apps.blog',
     'apps.chatbot',
+    'apps.container_conversion',
     'apps.quote_request',
     'apps.request_solar_cleaning',
     'apps.subscription',

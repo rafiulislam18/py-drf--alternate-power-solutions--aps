@@ -46,6 +46,7 @@ urlpatterns = [
     # Config custom apps URLs
     path('blogs/', include('apps.blog.urls')),
     path('chatbot/', include('apps.chatbot.urls')),
+    path('container-conversion/', include('apps.container_conversion.urls')),
     path('quote-request/', include('apps.quote_request.urls')),
     path('request-solar-cleaning/', include('apps.request_solar_cleaning.urls')),
     path('subscription/', include('apps.subscription.urls')),

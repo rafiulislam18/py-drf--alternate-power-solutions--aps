@@ -133,6 +133,7 @@ INSTALLED_APPS = [
     # Custom apps
     'apps.blog',
     'apps.chatbot',
+    'apps.container_conversion',
     'apps.quote_request',
     'apps.request_solar_cleaning',
     'apps.subscription',
@@ -360,6 +361,8 @@ JAZZMIN_SETTINGS = {
 
         "blog.BlogCategory": "fas fa-folder",
         "blog.Blog": "fas fa-newspaper",
+
+        "container_conversion.ServiceRequest": "fas fa-shipping-fast",
 
         "quote_request.QuoteRequest": "fas fa-envelope-open-text",
 

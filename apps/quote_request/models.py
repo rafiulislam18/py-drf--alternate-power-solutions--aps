@@ -11,5 +11,8 @@ class QuoteRequest(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     sent_quote = models.BooleanField(default=False)
 
+    class Meta:
+        verbose_name_plural = "Quote Requests"
+
     def __str__(self):
         return f"Quote Request from {self.name} - {self.email}"
