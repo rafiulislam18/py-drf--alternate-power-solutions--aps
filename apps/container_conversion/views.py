@@ -1,3 +1,5 @@
+from django.core.mail import EmailMessage
+from django.conf import settings
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -8,22 +10,197 @@ from .serializers import ServiceRequestSerializer
 
 class ServiceRequestCreateAPIView(APIView):
     """
-    Public API endpoint to create a container conversion service request
+    Public API endpoint to create a container conversion service quote request
     """
 
     permission_classes = []  # Public endpoint
 
     def post(self, request):
         """
-        Create a new service request
+        Create a new service quote request
         """
         serializer = ServiceRequestSerializer(data=request.data)
 
         if serializer.is_valid():
             service_request = serializer.save()
+            
+            # Build additional details section if present
+            additional_details_section = ""
+            if service_request.additional_details:
+                additional_details_section = f'''
+                            <div style="margin-top: 15px;">
+                                <strong style="color: #D96F32;">Additional Details:</strong>
+                                <div style="background-color: #f8f9fa; padding: 12px; border-left: 4px solid #D96F32; margin-top: 8px;">
+                                    {service_request.additional_details}
+                                </div>
+                            </div>
+                '''
+            
+            # HTML Email Template
+            html_message = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <style>
+                    body {{
+                        font-family: Arial, sans-serif;
+                        line-height: 1.6;
+                    }}
+                    .section {{
+                        margin-bottom: 20px;
+                    }}
+                    .section-title {{
+                        color: #D96F32;
+                        font-weight: bold;
+                        border-bottom: 2px solid #D96F32;
+                        padding-bottom: 10px;
+                        margin-bottom: 10px;
+                    }}
+                    .info-row {{
+                        display: flex;
+                        justify-content: space-between;
+                        padding: 8px 0;
+                        border-bottom: 1px solid #e0e0e0;
+                    }}
+                    .label {{
+                        color: #D96F32;
+                        font-weight: bold;
+                        min-width: 200px;
+                    }}
+                    .value {{
+                        color: #333;
+                        word-break: break-word;
+                    }}
+                </style>
+            </head>
+            <body>
+                <div style="max-width: 700px; margin: 0 auto; padding: 20px; background-color: #f8f9fa; border-radius: 10px;">
+                    <h2 style="color: #D96F32; text-align: center; border-bottom: 3px solid #D96F32; padding-bottom: 15px;">
+                        🔔 New Container Conversion Quote Request
+                    </h2>
+                    
+                    <div style="background-color: white; padding: 20px; border-radius: 5px; margin-top: 20px;">
+                        
+                        <!-- Contact Information -->
+                        <div class="section">
+                            <div class="section-title">Contact Information</div>
+                            <div class="info-row">
+                                <span class="label">Name:</span>
+                                <span class="value">{service_request.first_name} {service_request.last_name}</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="label">Email:</span>
+                                <span class="value">{service_request.email}</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="label">Phone:</span>
+                                <span class="value">{service_request.phone}</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="label">Company Name:</span>
+                                <span class="value">{service_request.company_name or 'Not provided'}</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="label">Preferred Contact Method:</span>
+                                <span class="value">{service_request.get_preferred_contact_method_display()}</span>
+                            </div>
+                        </div>
+                        
+                        <!-- Unit Configuration -->
+                        <div class="section">
+                            <div class="section-title">Unit Configuration</div>
+                            <div class="info-row">
+                                <span class="label">Unit Type:</span>
+                                <span class="value">{service_request.get_unit_type_display()}</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="label">Intended Use:</span>
+                                <span class="value">{service_request.get_intended_use_display()}</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="label">Modular Size:</span>
+                                <span class="value">{service_request.get_modular_size_display()}</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="label">Domeshelter Size:</span>
+                                <span class="value">{service_request.get_domeshelter_size_display()}</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="label">Rent or Buy:</span>
+                                <span class="value">{service_request.get_rent_or_buy_display()}</span>
+                            </div>
+                        </div>
+                        
+                        <!-- Special Features -->
+                        <div class="section">
+                            <div class="section-title">Special Features & Add-ons</div>
+                            <div class="info-row">
+                                <span class="label">Flatpack:</span>
+                                <span class="value">{'Yes ✓' if service_request.flatpack else 'No'}</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="label">Rent Furniture:</span>
+                                <span class="value">{'Yes ✓' if service_request.rent_furniture else 'No'}</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="label">Ablution Unit:</span>
+                                <span class="value">{'Yes ✓' if service_request.ablution_unit else 'No'}</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="label">Refrigeration Type:</span>
+                                <span class="value">{service_request.get_refrigeration_type_display()}</span>
+                            </div>
+                        </div>
+                        
+                        <!-- Delivery & Details -->
+                        <div class="section">
+                            <div class="section-title">Delivery & Additional Details</div>
+                            <div class="info-row">
+                                <span class="label">Delivery Address:</span>
+                            </div>
+                            <div style="background-color: #f8f9fa; padding: 12px; border-left: 4px solid #D96F32; margin: 10px 0;">
+                                {service_request.transport_or_export_address}
+                            </div>
+                            {additional_details_section}
+                        </div>
+                        
+                        <!-- Footer -->
+                        <div style="margin-top: 30px; padding-top: 20px; border-top: 2px solid #e0e0e0;">
+                            <p style="color: #666; font-size: 12px; text-align: center;">
+                                <strong>Request ID:</strong> {service_request.id}<br>
+                                <strong>Submitted At:</strong> {service_request.created_at.strftime('%Y-%m-%d %H:%M:%S')}<br>
+                                <em>This is an automated message from Alternate Power Solutions</em>
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </body>
+            </html>
+            """
+
+            # Send email notification
+            try:
+                email = EmailMessage(
+                    subject=f"APS New Container Conversion Quote Request from {service_request.first_name} {service_request.last_name}",
+                    body=html_message,
+                    from_email=settings.EMAIL_HOST_USER,
+                    to=[settings.EMAIL_HOST_USER],
+                )
+                email.content_subtype = "html"
+                email.send(fail_silently=True)
+            except Exception:
+                return Response(
+                    {
+                        "message": "Quote request submitted successfully, but failed to send notification email to admin. Please contact APS directly to confirm your request with request ID.",
+                        "request_id": service_request.id,
+                        "data": ServiceRequestSerializer(service_request).data,
+                    },
+                    status=status.HTTP_201_CREATED
+                )
+            
             return Response(
                 {
-                    "message": "Service request submitted successfully. We'll review your request and get back to you very soon.",
+                    "message": "Quote request submitted successfully. We'll review your request and get back to you very soon.",
                     "request_id": service_request.id,
                     "data": ServiceRequestSerializer(service_request).data,
                 },
@@ -32,7 +209,7 @@ class ServiceRequestCreateAPIView(APIView):
 
         return Response(
             {
-                "message": "Failed to submit service request. Please check the form and try again.",
+                "message": "Failed to submit quote request. Please check the form and try again.",
                 "errors": serializer.errors,
             },
             status=status.HTTP_400_BAD_REQUEST

@@ -51,7 +51,7 @@ class QuoteRequestAPIView(APIView):
                         <p><strong style="color: #D96F32;">Submitted At:</strong> {instance.created_at.strftime('%Y-%m-%d %H:%M:%S')}</p>
                     </div>
                     <div style="text-align: center; margin-top: 20px; color: #666; font-size: 12px;">
-                        <p>This is an automated message from Alter Power Solutions</p>
+                        <p>This is an automated message from Alternate Power Solutions</p>
                     </div>
                 </div>
             </body>
