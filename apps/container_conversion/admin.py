@@ -9,10 +9,10 @@ class ServiceRequestAdmin(admin.ModelAdmin):
         "email",
         "phone",
         "company_name",
+        "unit_type",
+        "intended_use",
         "modular_size",
         "rent_or_buy",
-        "domeshelter_size",
-        "refrigeration_type",
         "is_processed",
         "created_at",
     )
@@ -20,6 +20,8 @@ class ServiceRequestAdmin(admin.ModelAdmin):
     list_per_page = 10
 
     list_filter = (
+        "unit_type",
+        "intended_use",
         "modular_size",
         "rent_or_buy",
         "domeshelter_size",
@@ -41,35 +43,34 @@ class ServiceRequestAdmin(admin.ModelAdmin):
     readonly_fields = ("created_at", "updated_at")
 
     fieldsets = (
-        ("Personal / Contact Info", {
+        ("Contact Information", {
             "fields": (
                 "first_name",
                 "last_name",
                 "email",
                 "phone",
                 "preferred_contact_method",
+                "company_name",
             )
         }),
-        ("Company Info", {
-            "fields": ("company_name",)
-        }),
-        ("Container / Modular Details", {
+        ("Unit Configuration", {
             "fields": (
+                "unit_type",
+                "intended_use",
+                "ablution_included",
                 "modular_size",
                 "domeshelter_size",
                 "rent_or_buy",
-            )
-        }),
-        ("Optional Add-ons", {
-            "fields": (
                 "flatpack",
                 "rent_furniture",
-                "ablution",
                 "refrigeration_type",
             )
         }),
-        ("Transport / Export", {
-            "fields": ("transport_or_export_address",)
+        ("Delivery & Other Details", {
+            "fields": (
+                "transport_or_export_address",
+                "additional_details",
+            )
         }),
         ("Admin", {
             "fields": (

@@ -7,14 +7,24 @@ class ServiceRequestSerializer(serializers.ModelSerializer):
         model = ServiceRequest
         fields = [
             "id",
+            "first_name",
+            "last_name",
+            "email",
+            "phone",
+            "preferred_contact_method",
             "company_name",
+            "unit_type",
+            "intended_use",
+            "ablution_included",
             "modular_size",
             "domeshelter_size",
             "rent_or_buy",
-            "rent_furniture",
             "flatpack",
+            "rent_furniture",
             "refrigeration_type",
             "transport_or_export_address",
+            "additional_details",
             "created_at",
+            "updated_at",
         ]
-        read_only_fields = ["id", "created_at"]
+        read_only_fields = ["id", "created_at", "updated_at"]

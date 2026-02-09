@@ -3,7 +3,7 @@ from django.db import models
 
 class ServiceRequest(models.Model):
 
-    # ---------- PERSONAL / CONTACT INFO ----------
+    # ---------- Contact Information ----------
     first_name = models.CharField(max_length=100)
     last_name = models.CharField(max_length=100)
 
@@ -28,7 +28,35 @@ class ServiceRequest(models.Model):
         help_text="Optional for individual clients"
     )
 
-    # ---------- MODULAR / CONTAINER TYPE ----------
+    # ---------- Unit Configuration ----------
+    UNIT_TYPE_CHOICES = [
+        ("container", "Container"),
+        ("parkhome", "Parkhome"),
+    ]
+
+    unit_type = models.CharField(
+        max_length=10,
+        choices=UNIT_TYPE_CHOICES
+    )
+
+    INTENDED_USE_CHOICES = [
+        ("storage", "Storage"),
+        ("office", "Office"),
+        ("accommodation", "Accommodation"),
+        ("school", "School"),
+        ("custom_conversion", "Custom Conversion"),
+    ]
+
+    intended_use = models.CharField(
+        max_length=20,
+        choices=INTENDED_USE_CHOICES
+    )
+
+    ablution_included = models.BooleanField(
+        default=False,
+        help_text="Included toilet / washroom unit"
+    )
+
     MODULAR_SIZE_CHOICES = [
         ("3m", "3 Meter"),
         ("6m", "6 Meter (20ft Container)"),
@@ -42,7 +70,6 @@ class ServiceRequest(models.Model):
         choices=MODULAR_SIZE_CHOICES
     )
 
-    # ---------- DOMESHELTER ----------
     DOMESHELTER_CHOICES = [
         ("none", "No Dome Shelter"),
         ("6x6", "6m x 6m"),
@@ -56,7 +83,6 @@ class ServiceRequest(models.Model):
         default="none"
     )
 
-    # ---------- RENT OR BUY ----------
     RENT_BUY_CHOICES = [
         ("rent", "Rent"),
         ("buy", "Buy"),
@@ -67,16 +93,9 @@ class ServiceRequest(models.Model):
         choices=RENT_BUY_CHOICES
     )
 
-    # ---------- OPTIONAL ADD-ONS ----------
     flatpack = models.BooleanField(default=False, help_text="Delivered unassembled & assembled on-site")
     rent_furniture = models.BooleanField(default=False)
 
-    ablution = models.BooleanField(
-        default=False,
-        help_text="Include toilet / washroom unit"
-    )
-
-    # ---------- REFRIGERATED CONTAINER ----------
     REFRIGERATION_CHOICES = [
         ("none", "Not Required"),
         ("single_phase", "Single-Phase"),
@@ -89,10 +108,11 @@ class ServiceRequest(models.Model):
         default="none"
     )
 
-    # ---------- TRANSPORT / EXPORT ----------
+    # ---------- Delivery & Other Details ----------
     transport_or_export_address = models.TextField()
+    additional_details = models.TextField(blank=True, help_text="Any additional requirements or special requests")
 
-    # ---------- INTERNAL / SALES ----------
+    # ---------- Admin ----------
     notes = models.TextField(blank=True)
     is_processed = models.BooleanField(default=False)
 

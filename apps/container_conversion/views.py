@@ -14,16 +14,26 @@ class ServiceRequestCreateAPIView(APIView):
     permission_classes = []  # Public endpoint
 
     def post(self, request):
+        """
+        Create a new service request
+        """
         serializer = ServiceRequestSerializer(data=request.data)
 
         if serializer.is_valid():
-            quote = serializer.save()
+            service_request = serializer.save()
             return Response(
                 {
-                    "message": "Quote request submitted successfully.",
-                    "quote_id": quote.id,
+                    "message": "Service request submitted successfully. We'll review your request and get back to you very soon.",
+                    "request_id": service_request.id,
+                    "data": ServiceRequestSerializer(service_request).data,
                 },
                 status=status.HTTP_201_CREATED
             )
 
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            {
+                "message": "Failed to submit service request. Please check the form and try again.",
+                "errors": serializer.errors,
+            },
+            status=status.HTTP_400_BAD_REQUEST
+        )
