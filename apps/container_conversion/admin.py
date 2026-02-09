@@ -57,12 +57,12 @@ class ServiceRequestAdmin(admin.ModelAdmin):
             "fields": (
                 "unit_type",
                 "intended_use",
-                "ablution_included",
                 "modular_size",
                 "domeshelter_size",
                 "rent_or_buy",
                 "flatpack",
                 "rent_furniture",
+                "ablution_unit",
                 "refrigeration_type",
             )
         }),

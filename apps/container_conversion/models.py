@@ -52,11 +52,6 @@ class ServiceRequest(models.Model):
         choices=INTENDED_USE_CHOICES
     )
 
-    ablution_included = models.BooleanField(
-        default=False,
-        help_text="Included toilet / washroom unit"
-    )
-
     MODULAR_SIZE_CHOICES = [
         ("3m", "3 Meter"),
         ("6m", "6 Meter (20ft Container)"),
@@ -95,6 +90,10 @@ class ServiceRequest(models.Model):
 
     flatpack = models.BooleanField(default=False, help_text="Delivered unassembled & assembled on-site")
     rent_furniture = models.BooleanField(default=False)
+    ablution_unit = models.BooleanField(
+        default=False,
+        help_text="Included toilet / washroom unit"
+    )
 
     REFRIGERATION_CHOICES = [
         ("none", "Not Required"),
