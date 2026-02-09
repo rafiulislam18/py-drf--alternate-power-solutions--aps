@@ -3,11 +3,30 @@ from django.db import models
 
 class ServiceRequest(models.Model):
 
-    # ---------- CORE BUSINESS INFO ----------
-    company_name = models.CharField(max_length=255)
+    # ---------- PERSONAL / CONTACT INFO ----------
+    first_name = models.CharField(max_length=100)
+    last_name = models.CharField(max_length=100)
 
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
+    email = models.EmailField()
+    phone = models.CharField(max_length=30)
+
+    PREFERRED_CONTACT_CHOICES = [
+        ("call", "Phone Call"),
+        ("email", "Email"),
+        ("whatsapp", "WhatsApp"),
+    ]
+
+    preferred_contact_method = models.CharField(
+        max_length=10,
+        choices=PREFERRED_CONTACT_CHOICES,
+        default="call"
+    )
+
+    company_name = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text="Optional for individual clients"
+    )
 
     # ---------- MODULAR / CONTAINER TYPE ----------
     MODULAR_SIZE_CHOICES = [
@@ -20,8 +39,7 @@ class ServiceRequest(models.Model):
 
     modular_size = models.CharField(
         max_length=20,
-        choices=MODULAR_SIZE_CHOICES,
-        help_text="Primary container or modular unit size"
+        choices=MODULAR_SIZE_CHOICES
     )
 
     # ---------- DOMESHELTER ----------
@@ -35,8 +53,7 @@ class ServiceRequest(models.Model):
     domeshelter_size = models.CharField(
         max_length=10,
         choices=DOMESHELTER_CHOICES,
-        default="none",
-        blank=True
+        default="none"
     )
 
     # ---------- RENT OR BUY ----------
@@ -51,10 +68,12 @@ class ServiceRequest(models.Model):
     )
 
     # ---------- OPTIONAL ADD-ONS ----------
+    flatpack = models.BooleanField(default=False, help_text="Delivered unassembled & assembled on-site")
     rent_furniture = models.BooleanField(default=False)
-    flatpack = models.BooleanField(
+
+    ablution = models.BooleanField(
         default=False,
-        help_text="Delivered unassembled and assembled on site"
+        help_text="Include toilet / washroom unit"
     )
 
     # ---------- REFRIGERATED CONTAINER ----------
@@ -71,16 +90,19 @@ class ServiceRequest(models.Model):
     )
 
     # ---------- TRANSPORT / EXPORT ----------
-    transport_or_export_address = models.TextField(
-        help_text="Delivery address or export destination"
-    )
+    transport_or_export_address = models.TextField()
 
-    # ---------- ADMIN / SALES ----------
-    is_processed = models.BooleanField(default=False)
+    # ---------- INTERNAL / SALES ----------
     notes = models.TextField(blank=True)
+    is_processed = models.BooleanField(default=False)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        verbose_name = "Service Request"
         verbose_name_plural = "Service Requests"
+        ordering = ["-created_at"]
 
     def __str__(self):
-        return f"{self.company_name} - {self.modular_size} ({self.rent_or_buy})"
+        return f"{self.first_name} {self.last_name} - {self.modular_size}"
