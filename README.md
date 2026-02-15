@@ -68,7 +68,20 @@ python manage.py createsuperuser
 python manage.py runserver
 ```
 
-## Useful Links 🔗
+## Database
 
-- [http://127.0.0.1:8000/docs/](http://127.0.0.1:8000/docs/) to access the API Documentation
-- [http://127.0.0.1:8000/admin/](http://127.0.0.1:8000/admin/) to access the Django Admin
+The project now uses **PostgreSQL** as the production and main development database (switched from SQLite in February 2026).
+
+### Current Configuration (settings.py)
+
+```python
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': 'aps_db',
+        'USER': 'aps_db_user',
+        'PASSWORD': os.getenv('DB_PASSWORD'),           # ← never commit real password
+        'HOST': 'localhost',                      # or remote host in production
+        'PORT': '5432',
+    }
+}
