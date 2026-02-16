@@ -134,10 +134,14 @@ INSTALLED_APPS = [
     'apps.blog',
     'apps.chatbot',
     'apps.container_conversion',
+    'apps.core',
     'apps.quote_request',
     'apps.request_solar_cleaning',
     'apps.subscription',
     'apps.services_and_projects',
+
+    # Celery Beat for periodic tasks (at last to avoid circular imports with tasks)
+    'django_celery_beat',
 ]
 
 MIDDLEWARE = [
@@ -387,9 +391,6 @@ JAZZMIN_SETTINGS = {
     },
 }
 
-# AI Chatbot configurations (Grok)
-CHATBOT_API_KEY = os.getenv("CHATBOT_API_KEY")
-CHATBOT_API_URL = os.getenv("CHATBOT_API_URL")
 
 # Email Service Configuration
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
@@ -398,6 +399,21 @@ EMAIL_PORT = 587
 EMAIL_USE_TLS = True
 EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER')
 EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD')
+
+
+# ====================== CELERY ======================
+CELERY_BROKER_URL = 'redis://localhost:6379/0'
+CELERY_RESULT_BACKEND = 'redis://localhost:6379/0'
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TIMEZONE = 'Africa/Johannesburg'   # ← Client timezone
+CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'
+
+
+# AI Chatbot configurations (Grok)
+CHATBOT_API_KEY = os.getenv("CHATBOT_API_KEY")
+CHATBOT_API_URL = os.getenv("CHATBOT_API_URL")
 
 
 # PayFast Configuration
