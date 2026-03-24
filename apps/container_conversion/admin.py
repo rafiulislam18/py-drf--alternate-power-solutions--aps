@@ -13,6 +13,7 @@ class ServiceRequestAdmin(admin.ModelAdmin):
         "intended_use",
         "modular_size",
         "rent_or_buy",
+        "transport_or_export_address",
         "is_processed",
         "created_at",
     )
