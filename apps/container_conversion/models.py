@@ -31,11 +31,11 @@ class ServiceRequest(models.Model):
     # ---------- Unit Configuration ----------
     UNIT_TYPE_CHOICES = [
         ("container", "Container"),
-        ("parkhome", "Parkhome"),
+        ("conversion_only", "Conversion Only (Client-Supplied Container)"),
     ]
 
     unit_type = models.CharField(
-        max_length=10,
+        max_length=20,
         choices=UNIT_TYPE_CHOICES
     )
 
@@ -43,8 +43,9 @@ class ServiceRequest(models.Model):
         ("storage", "Storage"),
         ("office", "Office"),
         ("accommodation", "Accommodation"),
-        ("school", "School"),
-        ("custom_conversion", "Custom Conversion"),
+        ("classroom_or_school", "Classroom / School"),
+        ("site_office", "Site Office"),
+        ("ablution", "Ablution"),
     ]
 
     intended_use = models.CharField(
@@ -53,58 +54,96 @@ class ServiceRequest(models.Model):
     )
 
     MODULAR_SIZE_CHOICES = [
-        ("3m", "3 Meter"),
         ("6m", "6 Meter (20ft Container)"),
         ("12m", "12 Meter (40ft Container)"),
-        ("9m_parkhome", "9 Meter Parkhome"),
-        ("conversion_only", "Conversion Only (Client-Owned Container)"),
+        ("client_supplied_container", "Client-Supplied Container"),
     ]
 
     modular_size = models.CharField(
-        max_length=20,
+        max_length=25,
         choices=MODULAR_SIZE_CHOICES
     )
 
-    DOMESHELTER_CHOICES = [
-        ("none", "No Dome Shelter"),
-        ("6x6", "6m x 6m"),
-        ("12x12", "12m x 12m"),
-        ("18x18", "18m x 18m"),
-    ]
-
-    domeshelter_size = models.CharField(
-        max_length=10,
-        choices=DOMESHELTER_CHOICES,
-        default="none"
-    )
-
-    RENT_BUY_CHOICES = [
-        ("rent", "Rent"),
-        ("buy", "Buy"),
-    ]
-
-    rent_or_buy = models.CharField(
-        max_length=10,
-        choices=RENT_BUY_CHOICES
-    )
-
-    flatpack = models.BooleanField(default=False, help_text="Delivered unassembled & assembled on-site")
-    rent_furniture = models.BooleanField(default=False)
+    # ---------- Optional Extras ----------
     ablution_unit = models.BooleanField(
         default=False,
-        help_text="Included toilet / washroom unit"
+        help_text="Include toilet / washroom facilities"
+    )
+    electrical_installation = models.BooleanField(
+        default=False,
+        help_text="Internal wiring, plugs, lights, and DB board installation"
+    )
+    plumbing_installation = models.BooleanField(
+        default=False,
+        help_text="Water supply and drainage points where required"
+    )
+    insulation = models.BooleanField(
+        default=False,
+        help_text="Thermal insulation for improved temperature control"
+    )
+    interior_finishes = models.BooleanField(
+        default=False,
+        help_text="Internal cladding, ceilings, flooring, and finish upgrades"
+    )
+    air_conditioning = models.BooleanField(
+        default=False,
+        help_text="Supply and installation of air conditioning"
+    )
+    solar_backup_power = models.BooleanField(
+        default=False,
+        help_text="Solar, inverter, and battery backup solutions"
+    )
+    custom_painting_branding = models.BooleanField(
+        default=False,
+        help_text="Custom exterior paint colours or branded finishes"
+    )
+    delivery_and_installation = models.BooleanField(
+        default=False,
+        help_text="Transport, offloading, positioning, and installation on site"
     )
 
-    REFRIGERATION_CHOICES = [
-        ("none", "Not Required"),
-        ("single_phase", "Single-Phase"),
-        ("three_phase", "Three-Phase"),
+    # ---------- Project Details ----------
+    PROJECT_TIMEFRAME_CHOICES = [
+        ("urgent", "Urgent"),
+        ("within_1_month", "Within 1 Month"),
+        ("1_to_3_months", "1–3 Months"),
+        ("budgeting_only", "Budgeting Only"),
     ]
 
-    refrigeration_type = models.CharField(
+    project_timeframe = models.CharField(
         max_length=20,
-        choices=REFRIGERATION_CHOICES,
-        default="none"
+        choices=PROJECT_TIMEFRAME_CHOICES,
+        blank=True,
+        help_text="Client's project timeline"
+    )
+
+    BUDGET_RANGE_CHOICES = [
+        ("100_to_250k", "R100,000 – R250,000"),
+        ("250_to_500k", "R250,000 – R500,000"),
+        ("500k_to_1m", "R500,000 – R1,000,000"),
+        ("over_1m", "Over R1,000,000"),
+        ("not_sure", "Not Sure Yet"),
+    ]
+
+    budget_range = models.CharField(
+        max_length=20,
+        choices=BUDGET_RANGE_CHOICES,
+        default="not_sure",
+        help_text="Client's budget range"
+    )
+
+    FINISH_LEVEL_CHOICES = [
+        ("standard", "Standard"),
+        ("mid_range", "Mid-Range"),
+        ("premium", "Premium"),
+        ("to_be_discussed", "To Be Discussed"),
+    ]
+
+    finish_level = models.CharField(
+        max_length=20,
+        choices=FINISH_LEVEL_CHOICES,
+        default="standard",
+        help_text="Desired finish level / fittings preference"
     )
 
     # ---------- Delivery & Other Details ----------

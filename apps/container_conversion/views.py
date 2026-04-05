@@ -121,34 +121,63 @@ class ServiceRequestCreateAPIView(APIView):
                                 <span class="label">Modular Size:</span>
                                 <span class="value">{service_request.get_modular_size_display()}</span>
                             </div>
-                            <div class="info-row">
-                                <span class="label">Domeshelter Size:</span>
-                                <span class="value">{service_request.get_domeshelter_size_display()}</span>
-                            </div>
-                            <div class="info-row">
-                                <span class="label">Rent or Buy:</span>
-                                <span class="value">{service_request.get_rent_or_buy_display()}</span>
-                            </div>
                         </div>
                         
-                        <!-- Special Features -->
+                        <!-- Optional Extras -->
                         <div class="section">
-                            <div class="section-title">Special Features & Add-ons</div>
-                            <div class="info-row">
-                                <span class="label">Flatpack:</span>
-                                <span class="value">{'Yes ✓' if service_request.flatpack else 'No'}</span>
-                            </div>
-                            <div class="info-row">
-                                <span class="label">Rent Furniture:</span>
-                                <span class="value">{'Yes ✓' if service_request.rent_furniture else 'No'}</span>
-                            </div>
+                            <div class="section-title">Optional Extras</div>
                             <div class="info-row">
                                 <span class="label">Ablution Unit:</span>
                                 <span class="value">{'Yes ✓' if service_request.ablution_unit else 'No'}</span>
                             </div>
                             <div class="info-row">
-                                <span class="label">Refrigeration Type:</span>
-                                <span class="value">{service_request.get_refrigeration_type_display()}</span>
+                                <span class="label">Electrical Installation:</span>
+                                <span class="value">{'Yes ✓' if service_request.electrical_installation else 'No'}</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="label">Plumbing Installation:</span>
+                                <span class="value">{'Yes ✓' if service_request.plumbing_installation else 'No'}</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="label">Insulation:</span>
+                                <span class="value">{'Yes ✓' if service_request.insulation else 'No'}</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="label">Interior Finishes:</span>
+                                <span class="value">{'Yes ✓' if service_request.interior_finishes else 'No'}</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="label">Air Conditioning:</span>
+                                <span class="value">{'Yes ✓' if service_request.air_conditioning else 'No'}</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="label">Solar / Backup Power:</span>
+                                <span class="value">{'Yes ✓' if service_request.solar_backup_power else 'No'}</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="label">Custom Painting / Branding:</span>
+                                <span class="value">{'Yes ✓' if service_request.custom_painting_branding else 'No'}</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="label">Delivery and Installation:</span>
+                                <span class="value">{'Yes ✓' if service_request.delivery_and_installation else 'No'}</span>
+                            </div>
+                        </div>
+                        
+                        <!-- Project Details -->
+                        <div class="section">
+                            <div class="section-title">Project Details</div>
+                            <div class="info-row">
+                                <span class="label">Project Timeframe:</span>
+                                <span class="value">{service_request.get_project_timeframe_display() if service_request.project_timeframe else 'Not specified'}</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="label">Budget Range:</span>
+                                <span class="value">{service_request.get_budget_range_display()}</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="label">Finish Level / Fittings Preference:</span>
+                                <span class="value">{service_request.get_finish_level_display()}</span>
                             </div>
                         </div>
                         
