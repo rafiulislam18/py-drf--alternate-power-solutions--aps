@@ -1,12 +1,12 @@
 from django.core.mail import EmailMessage
 from django.conf import settings
-from rest_framework import status
+from rest_framework import status, generics, pagination
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import ServiceRequest
-from .serializers import ServiceRequestSerializer
+from .models import ServiceRequest, ContainerProject
+from .serializers import ServiceRequestSerializer, ContainerProjectSerializer
 
 
 class ServiceRequestCreateAPIView(APIView):
@@ -243,3 +243,33 @@ class ServiceRequestCreateAPIView(APIView):
             },
             status=status.HTTP_400_BAD_REQUEST
         )
+
+
+class ContainerProjectPagination(pagination.PageNumberPagination):
+    """
+    Custom pagination for container projects
+    """
+    page_size = 10
+    page_size_query_param = "page_size"
+    max_page_size = 100
+
+
+class ContainerProjectListView(generics.ListAPIView):
+    """
+    Public API endpoint to list container conversion projects
+    Supports pagination with limit parameter
+    """
+    queryset = ContainerProject.objects.all().order_by("-completion_date")
+    serializer_class = ContainerProjectSerializer
+    permission_classes = [AllowAny]
+    pagination_class = ContainerProjectPagination
+
+
+class ContainerProjectDetailView(generics.RetrieveAPIView):
+    """
+    Public API endpoint to retrieve details of a specific container conversion project
+    """
+    queryset = ContainerProject.objects.all()
+    serializer_class = ContainerProjectSerializer
+    permission_classes = [AllowAny]
+    lookup_field = "id"

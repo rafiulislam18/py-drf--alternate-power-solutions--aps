@@ -1,6 +1,27 @@
 from django.db import models
 
 
+class ContainerProject(models.Model):
+    title = models.CharField(max_length=255)
+    short_description = models.TextField()
+    long_description = models.TextField()
+    image = models.ImageField(upload_to="container_projects/")
+    image_2 = models.ImageField(upload_to="container_projects/", null=True, blank=True)
+    image_3 = models.ImageField(upload_to="container_projects/", null=True, blank=True)
+    location = models.CharField(max_length=255)
+    completion_date = models.DateField()
+    duration = models.CharField(max_length=50)  # e.g. "3 months"
+    features = models.JSONField(default=list, blank=True)
+    appreciation_mark = models.IntegerField(default=0)
+
+    class Meta:
+        verbose_name = "Container Project"
+        verbose_name_plural = "Container Projects"
+
+    def __str__(self):
+        return self.title
+
+
 class ServiceRequest(models.Model):
 
     # ---------- Contact Information ----------

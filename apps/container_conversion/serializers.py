@@ -1,5 +1,24 @@
 from rest_framework import serializers
-from .models import ServiceRequest
+from .models import ServiceRequest, ContainerProject
+
+
+class ContainerProjectSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ContainerProject
+        fields = [
+            "id",
+            "title",
+            "short_description",
+            "long_description",
+            "image",
+            "image_2",
+            "image_3",
+            "location",
+            "completion_date",
+            "duration",
+            "features",
+            "appreciation_mark",
+        ]
 
 
 class ServiceRequestSerializer(serializers.ModelSerializer):

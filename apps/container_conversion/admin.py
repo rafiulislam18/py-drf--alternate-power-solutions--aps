@@ -1,5 +1,13 @@
 from django.contrib import admin
-from .models import ServiceRequest
+from .models import ServiceRequest, ContainerProject
+
+
+@admin.register(ContainerProject)
+class ContainerProjectAdmin(admin.ModelAdmin):
+    list_display = ("title", "location", "completion_date", "duration")
+    search_fields = ("title", "location")
+    list_filter = ("completion_date",)
+    list_per_page = 10
 
 
 @admin.register(ServiceRequest)
