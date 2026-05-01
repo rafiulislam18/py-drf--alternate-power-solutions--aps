@@ -105,7 +105,7 @@ class QuoteRequestAPIView(APIView):
                 subject=f"APS New Quote Request from {instance.name}",
                 body=html_message,
                 from_email=settings.EMAIL_HOST_USER,
-                to=[settings.EMAIL_HOST_USER],
+                to=[settings.EMAIL_RECIPIENT],
             )
             email.content_subtype = "html"  # Main content is now text/html
             email.send(fail_silently=True)

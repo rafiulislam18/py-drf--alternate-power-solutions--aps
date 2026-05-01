@@ -186,7 +186,7 @@ def payfast_notify(request):
                 subject=f"APS PayFast IP Verification Failed (Solar & Inverter Maintenance Plan)",
                 body=html_message,
                 from_email=settings.EMAIL_HOST_USER,
-                to=[settings.EMAIL_HOST_USER],  # Send to self
+                to=[settings.EMAIL_RECIPIENT],
             )
             email.content_subtype = "html"  # Set content type to HTML
             email.send(fail_silently=True)
@@ -227,7 +227,7 @@ def payfast_notify(request):
                 subject=f"APS PayFast Missing Subscription ID (Solar & Inverter Maintenance Plan)",
                 body=html_message,
                 from_email=settings.EMAIL_HOST_USER,
-                to=[settings.EMAIL_HOST_USER],  # Send to self
+                to=[settings.EMAIL_RECIPIENT],
             )
             email.content_subtype = "html"  # Set content type to HTML
             email.send(fail_silently=True)
@@ -259,7 +259,7 @@ def payfast_notify(request):
                 subject=f"APS PayFast Subscription Not Found (Solar & Inverter Maintenance Plan)",
                 body=html_message,
                 from_email=settings.EMAIL_HOST_USER,
-                to=[settings.EMAIL_HOST_USER],  # Send to self
+                to=[settings.EMAIL_RECIPIENT],
             )
             email.content_subtype = "html"  # Set content type to HTML
             email.send(fail_silently=True)
@@ -323,7 +323,7 @@ def payfast_notify(request):
                 subject=f"APS New Subscription Payment from {subscription.client.name} (Solar & Inverter Maintenance Plan)",
                 body=html_message,
                 from_email=settings.EMAIL_HOST_USER,
-                to=[settings.EMAIL_HOST_USER],  # Send to self
+                to=[settings.EMAIL_RECIPIENT],
             )
             email.content_subtype = "html"  # Set content type to HTML
             email.send(fail_silently=True)

@@ -213,7 +213,7 @@ class ServiceRequestCreateAPIView(APIView):
                     subject=f"APS New Container Conversion Quote Request from {service_request.first_name} {service_request.last_name}",
                     body=html_message,
                     from_email=settings.EMAIL_HOST_USER,
-                    to=[settings.EMAIL_HOST_USER],
+                    to=[settings.EMAIL_RECIPIENT],
                 )
                 email.content_subtype = "html"
                 email.send(fail_silently=True)
