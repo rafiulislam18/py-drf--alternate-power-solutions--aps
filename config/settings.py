@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
+from datetime import timedelta
 import os
 from pathlib import Path
 from dotenv import load_dotenv
@@ -151,6 +152,7 @@ INSTALLED_APPS = [
     'apps.request_solar_cleaning',
     'apps.subscription',
     'apps.services_and_projects',
+    'apps.solar_dashboard',
 
     # Celery Beat for periodic tasks (at last to avoid circular imports with tasks)
     'django_celery_beat',
@@ -271,6 +273,15 @@ CSRF_COOKIE_SECURE = True  # CSRF cookies over HTTPS
 
 REST_FRAMEWORK = {
     "EXCEPTION_HANDLER": "utils.exceptions.custom_exception_handler",
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework_simplejwt.authentication.JWTAuthentication",
+    ],
+}
+
+
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=120),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
 }
 
 

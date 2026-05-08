@@ -51,6 +51,7 @@ urlpatterns = [
     path('request-solar-cleaning/', include('apps.request_solar_cleaning.urls')),
     path('subscription/', include('apps.subscription.urls')),
     path('services-projects/', include('apps.services_and_projects.urls')),
+    path('dashboard/', include('apps.solar_dashboard.urls')),
 
     # Config URLs for Swagger API Documentation
     # NOTE: Don't create public API Documentation. Create a private custom API Documentation.
