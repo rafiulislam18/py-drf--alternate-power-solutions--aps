@@ -1,10 +1,17 @@
 import uuid
+from django.contrib.auth.models import User
 from django.db import models
 
 
 class SolarReport(models.Model):
     uuid = models.UUIDField(default=uuid.uuid4, unique=True, db_index=True, editable=False)
-    client_name = models.CharField(max_length=200)
+    client = models.ForeignKey(
+        User,
+        on_delete=models.PROTECT,
+        related_name='solar_reports',
+        null=True,
+        blank=True,
+    )
     report_date = models.DateField()
     period_start = models.DateField()
     period_end = models.DateField()
@@ -15,7 +22,14 @@ class SolarReport(models.Model):
         ordering = ['-created_at']
 
     def __str__(self):
-        return f"{self.client_name} — {self.period_start} to {self.period_end}"
+        if self.client:
+            try:
+                name = self.client.client_profile.company_name or self.client.username
+            except Exception:
+                name = self.client.username
+        else:
+            name = '(no client)'
+        return f"{name} — {self.period_start} to {self.period_end}"
 
 
 class SiteData(models.Model):

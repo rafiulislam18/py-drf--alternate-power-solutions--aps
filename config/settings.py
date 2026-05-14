@@ -363,6 +363,11 @@ LOGGING = {
             'level': 'WARNING',
             'propagate': False,
         },
+        'apps.solar_dashboard': {
+            'handlers': ['console', 'file'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
     }
 }
 
