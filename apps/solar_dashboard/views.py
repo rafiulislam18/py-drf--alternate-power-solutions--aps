@@ -35,8 +35,7 @@ class DashboardTokenObtainPairSerializer(TokenObtainPairSerializer):
             profile = self.user.client_profile
             data['company_name'] = profile.company_name
             if profile.image:
-                request = self.context.get('request')
-                data['image'] = request.build_absolute_uri(profile.image.url) if request else profile.image.url
+                data['image'] = profile.image.url
             else:
                 data['image'] = None
         except ClientProfile.DoesNotExist:

@@ -34,8 +34,7 @@ class ClientUserSerializer(serializers.ModelSerializer):
         p = self._profile(obj)
         if not p or not p.image:
             return None
-        request = self.context.get('request')
-        return request.build_absolute_uri(p.image.url) if request else p.image.url
+        return p.image.url
 
     def get_role(self, obj):
         p = self._profile(obj)
