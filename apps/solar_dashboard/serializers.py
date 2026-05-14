@@ -46,7 +46,7 @@ class CreateClientUserSerializer(serializers.Serializer):
     username = serializers.CharField(max_length=150)
     company_name = serializers.CharField(max_length=200, required=False, allow_blank=True)
     image = serializers.ImageField(required=False, allow_null=True)
-    password = serializers.CharField(write_only=True, min_length=8)
+    password = serializers.CharField(write_only=True)
     confirm_password = serializers.CharField(write_only=True)
 
     def validate_username(self, value):
