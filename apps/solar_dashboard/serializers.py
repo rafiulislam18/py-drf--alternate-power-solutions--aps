@@ -89,15 +89,27 @@ class SolarReportSerializer(serializers.ModelSerializer):
         allow_null=True,
         required=False,
     )
+    sibling_reports = serializers.SerializerMethodField()
 
     class Meta:
         model = SolarReport
         fields = [
             'uuid', 'client', 'client_id', 'report_date',
             'period_start', 'period_end',
-            'created_at', 'updated_at', 'sites',
+            'created_at', 'updated_at', 'sites', 'sibling_reports',
         ]
         read_only_fields = ['uuid', 'created_at', 'updated_at']
+
+    def get_sibling_reports(self, obj):
+        if obj.client_id is None:
+            return []
+        qs = SolarReport.objects.filter(client_id=obj.client_id).order_by('-period_start').values(
+            'uuid', 'period_start', 'period_end'
+        )
+        return [
+            {'uuid': str(r['uuid']), 'period_start': r['period_start'], 'period_end': r['period_end']}
+            for r in qs
+        ]
 
     def create(self, validated_data):
         sites_data = validated_data.pop('sites')
