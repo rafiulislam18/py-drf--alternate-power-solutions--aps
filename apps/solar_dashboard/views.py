@@ -65,14 +65,12 @@ class SolarReportListCreateView(APIView):
         sort = request.query_params.get('sort', '-created_at')
 
         allowed_sorts = {
-            'created_at': 'created_at',
-            '-created_at': '-created_at',
+            'created_at': 'report_date',
+            '-created_at': '-report_date',
             'client_name': 'client__client_profile__company_name',
             '-client_name': '-client__client_profile__company_name',
-            'period_start': 'period_start',
-            '-period_start': '-period_start',
         }
-        order_by = allowed_sorts.get(sort, '-created_at')
+        order_by = allowed_sorts.get(sort, '-report_date')
 
         qs = SolarReport.objects.select_related('client__client_profile').order_by(order_by)
 
