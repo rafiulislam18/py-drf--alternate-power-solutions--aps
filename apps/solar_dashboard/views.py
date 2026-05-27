@@ -1,5 +1,8 @@
+from datetime import date, timedelta
+from decimal import Decimal
+
 from django.contrib.auth.models import User
-from django.db.models import Q
+from django.db.models import Q, Min, Max
 from rest_framework.views import APIView
 from rest_framework import status
 from rest_framework.response import Response
@@ -9,13 +12,32 @@ from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.views import TokenObtainPairView
 
 from apps.core.models import ClientProfile
-from .models import SolarReport
+from .models import SolarReport, SiteData
 from .serializers import (
     SolarReportSerializer,
     SolarReportListSerializer,
     ClientUserSerializer,
     CreateClientUserSerializer,
 )
+
+
+# Urgent, non-scalable: feature is gated to this client only.
+AGGREGATE_CLIENT_COMPANY_NAME = 'Urban Growth'
+AGGREGATE_SITE_NAMES = [
+    'Paarl – Units 8 & 9',
+    'Paarl* (with battery)',
+    'Stuart Close',
+    'Springfield – Philippi',
+    'Rialto (with battery)',
+    'Izuzu',
+    'Henry Vos',
+]
+AGGREGATE_NUMERIC_FIELDS = [
+    'solar_yield', 'battery_charge', 'usable_solar',
+    'estimated_saving', 'used_from_battery',
+    'sell_to_grid_kwh', 'sell_to_grid_r',
+    'grid_consumption', 'total_consumption',
+]
 
 
 def get_role(user):
@@ -169,3 +191,186 @@ class CreateClientView(APIView):
                 status=status.HTTP_201_CREATED,
             )
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+def _parse_date(value):
+    try:
+        y, m, d = value.split('-')
+        return date(int(y), int(m), int(d))
+    except Exception:
+        return None
+
+
+def _is_aggregate_client(client_user):
+    if not client_user:
+        return False
+    try:
+        return client_user.client_profile.company_name == AGGREGATE_CLIENT_COMPANY_NAME
+    except ClientProfile.DoesNotExist:
+        return False
+
+
+class SolarReportAggregateView(APIView):
+    """Aggregate per-site values across reports overlapping [from, to] with
+    pro-rata clipping plus daily-average extrapolation for uncovered days.
+
+    Public (matches detail GET) so shared dashboard links keep working.
+    Hardcoded to the 'Urban Growth' client and their 7 known sites.
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        report_uuid = request.query_params.get('report_uuid')
+        from_str = request.query_params.get('from')
+        to_str = request.query_params.get('to')
+
+        if not (report_uuid and from_str and to_str):
+            return Response(
+                {'error': 'report_uuid, from, and to are required'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            anchor = SolarReport.objects.select_related('client__client_profile').get(uuid=report_uuid)
+        except SolarReport.DoesNotExist:
+            return Response({'error': 'Report not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        if not _is_aggregate_client(anchor.client):
+            return Response({'error': 'Aggregation not available for this client'}, status=status.HTTP_403_FORBIDDEN)
+
+        from_d = _parse_date(from_str)
+        to_d = _parse_date(to_str)
+        if not from_d or not to_d or from_d > to_d:
+            return Response({'error': 'Invalid date range'}, status=status.HTTP_400_BAD_REQUEST)
+
+        client = anchor.client
+        bounds = SolarReport.objects.filter(client=client).aggregate(
+            min_start=Min('period_start'),
+            max_end=Max('period_end'),
+        )
+        min_start = bounds['min_start']
+        max_end = bounds['max_end']
+        if not min_start or not max_end:
+            return Response({'error': 'No data for client'}, status=status.HTTP_404_NOT_FOUND)
+
+        if from_d < min_start:
+            from_d = min_start
+        if to_d > max_end:
+            to_d = max_end
+        if from_d > to_d:
+            return Response({'error': 'Range outside available data'}, status=status.HTTP_400_BAD_REQUEST)
+
+        reports = (
+            SolarReport.objects
+            .filter(client=client, period_start__lte=to_d, period_end__gte=from_d)
+            .prefetch_related('sites')
+        )
+
+        per_site_totals = {
+            name: {f: Decimal('0') for f in AGGREGATE_NUMERIC_FIELDS}
+            for name in AGGREGATE_SITE_NAMES
+        }
+        per_site_has_battery = {name: False for name in AGGREGATE_SITE_NAMES}
+        covered_days = set()
+
+        for report in reports:
+            r_start = max(report.period_start, from_d)
+            r_end = min(report.period_end, to_d)
+            if r_start > r_end:
+                continue
+            overlap_days = (r_end - r_start).days + 1
+            report_days = (report.period_end - report.period_start).days + 1
+            if report_days <= 0:
+                continue
+            fraction = Decimal(overlap_days) / Decimal(report_days)
+
+            for i in range(overlap_days):
+                covered_days.add(r_start + timedelta(days=i))
+
+            for site in report.sites.all():
+                if site.site_name not in per_site_totals:
+                    continue
+                if site.has_battery:
+                    per_site_has_battery[site.site_name] = True
+                for field in AGGREGATE_NUMERIC_FIELDS:
+                    val = getattr(site, field) or Decimal('0')
+                    per_site_totals[site.site_name][field] += val * fraction
+
+        total_range_days = (to_d - from_d).days + 1
+        covered_count = len(covered_days)
+        uncovered_count = total_range_days - covered_count
+
+        sites_out = []
+        for order_idx, name in enumerate(AGGREGATE_SITE_NAMES):
+            totals = per_site_totals[name]
+            site_obj = {
+                'id': order_idx,
+                'order': order_idx,
+                'site_name': name,
+                'has_battery': per_site_has_battery[name],
+            }
+            for field in AGGREGATE_NUMERIC_FIELDS:
+                covered_total = totals[field]
+                if covered_count > 0 and uncovered_count > 0:
+                    daily_avg = covered_total / Decimal(covered_count)
+                    final = covered_total + daily_avg * Decimal(uncovered_count)
+                else:
+                    final = covered_total
+                site_obj[field] = str(final.quantize(Decimal('0.01')))
+            sites_out.append(site_obj)
+
+        client_data = ClientUserSerializer(client, context={'request': request}).data
+        sibling_reports = list(
+            SolarReport.objects
+            .filter(client=client)
+            .order_by('-period_start')
+            .values('uuid', 'period_start', 'period_end')
+        )
+        sibling_reports = [
+            {'uuid': str(r['uuid']), 'period_start': r['period_start'], 'period_end': r['period_end']}
+            for r in sibling_reports
+        ]
+
+        return Response({
+            'uuid': str(anchor.uuid),
+            'client': client_data,
+            'report_date': anchor.report_date,
+            'period_start': from_d,
+            'period_end': to_d,
+            'created_at': anchor.created_at,
+            'sites': sites_out,
+            'sibling_reports': sibling_reports,
+            'is_estimate': True,
+            'covered_days': covered_count,
+            'uncovered_days': uncovered_count,
+        })
+
+
+class SolarReportDateRangeView(APIView):
+    """Returns the min period_start and max period_end across the client's
+    reports — used by the frontend to clamp date pickers.
+
+    Public to support shared dashboard links.
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request, uuid):
+        try:
+            anchor = SolarReport.objects.select_related('client__client_profile').get(uuid=uuid)
+        except SolarReport.DoesNotExist:
+            return Response({'error': 'Report not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        if not _is_aggregate_client(anchor.client):
+            return Response({'error': 'Not available for this client'}, status=status.HTTP_403_FORBIDDEN)
+
+        bounds = SolarReport.objects.filter(client=anchor.client).aggregate(
+            min_start=Min('period_start'),
+            max_end=Max('period_end'),
+        )
+        if not bounds['min_start']:
+            return Response({'error': 'No data'}, status=status.HTTP_404_NOT_FOUND)
+
+        return Response({
+            'min_date': bounds['min_start'],
+            'max_date': bounds['max_end'],
+        })
