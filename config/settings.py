@@ -158,6 +158,13 @@ INSTALLED_APPS = [
     'django_celery_beat',
 ]
 
+# Authenticate by username case-insensitively (client requirement: "urban" == "Urban").
+# Keep the default backend as a fallback for the admin/session login path.
+AUTHENTICATION_BACKENDS = [
+    'apps.core.backends.CaseInsensitiveModelBackend',
+    'django.contrib.auth.backends.ModelBackend',
+]
+
 MIDDLEWARE = [
     'whitenoise.middleware.WhiteNoiseMiddleware',  # For serving static files in production
     'corsheaders.middleware.CorsMiddleware',

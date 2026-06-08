@@ -49,7 +49,9 @@ class CreateClientUserSerializer(serializers.Serializer):
     confirm_password = serializers.CharField(write_only=True)
 
     def validate_username(self, value):
-        if User.objects.filter(username=value).exists():
+        # Case-insensitive: usernames must be unique regardless of case, since
+        # login is also case-insensitive (so "urban" and "Urban" can't coexist).
+        if User.objects.filter(username__iexact=value).exists():
             raise serializers.ValidationError('A user with that username already exists.')
         return value
 
