@@ -153,6 +153,7 @@ INSTALLED_APPS = [
     'apps.subscription',
     'apps.services_and_projects',
     'apps.solar_dashboard',
+    'apps.weight_scale',
 
     # Celery Beat for periodic tasks (at last to avoid circular imports with tasks)
     'django_celery_beat',
