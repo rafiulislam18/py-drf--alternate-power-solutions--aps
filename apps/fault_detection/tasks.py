@@ -107,8 +107,20 @@ def check_soc_imbalance(self):
     spread = round(max_soc - min_soc, 2)
 
     summary = ", ".join(f"{eid}={soc:.2f}%" for eid, soc in readings)
+    faulted = spread > threshold
 
-    if spread > threshold:
+    # Structured context used to render the email / Telegram messages.
+    context = {
+        'is_fault': faulted,
+        'spread': spread,
+        'threshold': threshold,
+        'readings': readings,
+        'min': (min_entity, min_soc),
+        'max': (max_entity, max_soc),
+        'checked_at': timezone.localtime(timezone.now()).strftime('%d/%m/%Y %H:%M:%S'),
+    }
+
+    if faulted:
         message = (
             f"[ALERT] SOC IMBALANCE DETECTED - spread {spread:.2f}% exceeds "
             f"threshold {threshold:.2f}%. "
@@ -118,7 +130,6 @@ def check_soc_imbalance(self):
         )
         logger.warning(message)
         print(message)
-        _handle_transition(SOC_IMBALANCE_KEY, faulted=True, message=message)
     else:
         message = (
             f"SOC OK - spread {spread:.2f}% within threshold {threshold:.2f}%. "
@@ -126,12 +137,12 @@ def check_soc_imbalance(self):
         )
         logger.info(message)
         print(message)
-        _handle_transition(SOC_IMBALANCE_KEY, faulted=False, message=message)
 
+    _handle_transition(SOC_IMBALANCE_KEY, faulted=faulted, message=message, context=context)
     return message
 
 
-def _handle_transition(key, faulted, message):
+def _handle_transition(key, faulted, message, context):
     """
     Compare the current fault state with the stored state and fire an alert only
     on a transition (clear -> fault, or fault -> clear). Avoids re-alerting every
@@ -148,7 +159,7 @@ def _handle_transition(key, faulted, message):
         state.last_message = message
         state.last_triggered_at = now
         state.save()
-        results = dispatch_alert(subject="APS Solar Fault: SOC Imbalance Detected", body=message)
+        results = dispatch_alert(subject="APS Solar Fault: SOC Imbalance Detected", context=context)
         logger.warning("SOC imbalance alert dispatched: %s", results)
 
     elif not faulted and state.is_active:
@@ -157,8 +168,7 @@ def _handle_transition(key, faulted, message):
         state.last_message = message
         state.last_recovered_at = now
         state.save()
-        recovery_body = "RECOVERED: SOC imbalance cleared.\n\n" + message
-        results = dispatch_alert(subject="APS Solar Recovered: SOC Imbalance Cleared", body=recovery_body)
+        results = dispatch_alert(subject="APS Solar Recovered: SOC Imbalance Cleared", context=context)
         logger.info("SOC recovery alert dispatched: %s", results)
 
     else:
