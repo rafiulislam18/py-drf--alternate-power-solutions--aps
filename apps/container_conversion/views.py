@@ -1,5 +1,6 @@
 from django.core.mail import EmailMessage
 from django.conf import settings
+from django.utils import timezone
 from rest_framework import status, generics, pagination
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
@@ -197,7 +198,7 @@ class ServiceRequestCreateAPIView(APIView):
                         <div style="margin-top: 30px; padding-top: 20px; border-top: 2px solid #e0e0e0;">
                             <p style="color: #666; font-size: 12px; text-align: center;">
                                 <strong>Request ID:</strong> {service_request.id}<br>
-                                <strong>Submitted At:</strong> {service_request.created_at.strftime('%Y-%m-%d %H:%M:%S')}<br>
+                                <strong>Submitted At:</strong> {timezone.localtime(service_request.created_at).strftime('%Y-%m-%d %H:%M:%S')}<br>
                                 <em>This is an automated message from Alternate Power Solutions</em>
                             </p>
                         </div>

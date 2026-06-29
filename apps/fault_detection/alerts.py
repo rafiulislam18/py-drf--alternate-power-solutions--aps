@@ -34,11 +34,58 @@ def _friendly(entity_id):
 
 
 # ---------------------------------------------------------------------------
-# Message builders
+# Message builders — dispatch by context['kind']
 # ---------------------------------------------------------------------------
 
 def _build_email_html(context):
-    """Render the branded HTML email body from the alert context."""
+    """Route to the right email body based on the alert kind."""
+    if context.get('kind') == 'charge_behaviour':
+        return _build_behaviour_email_html(context)
+    return _build_soc_email_html(context)
+
+
+def _build_telegram_html(context):
+    """Route to the right Telegram body based on the alert kind."""
+    if context.get('kind') == 'charge_behaviour':
+        return _build_behaviour_telegram_html(context)
+    return _build_soc_telegram_html(context)
+
+
+def _email_shell(accent, badge, title, body_html):
+    """Shared branded email wrapper used by all alert kinds."""
+    return f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <style>
+            body {{ font-family: Arial, sans-serif; line-height: 1.6; }}
+        </style>
+    </head>
+    <body>
+        <div style="max-width: 600px; margin: 0 auto; padding: 20px; background-color: {BG}; border-radius: 10px;">
+            <h2 style="color: {BRAND}; text-align: center; border-bottom: 2px solid {BRAND}; padding-bottom: 10px;">
+                Solar Monitoring Alert
+            </h2>
+            <div style="text-align:center; margin: 16px 0;">
+                <span style="display:inline-block; background-color:{accent}; color:#fff; padding:6px 16px; border-radius:20px; font-weight:bold; letter-spacing:1px;">
+                    {badge}
+                </span>
+            </div>
+            <div style="background-color: white; padding: 20px; border-radius: 5px; margin-top: 10px;">
+                <h3 style="color:{accent}; margin-top:0;">{title}</h3>
+                {body_html}
+            </div>
+            <div style="text-align: center; margin-top: 20px; color: #666; font-size: 12px;">
+                <p>This is an automated message from Alternate Power Solutions</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+
+
+def _build_soc_email_html(context):
+    """Render the branded HTML email body from the SOC imbalance context."""
     is_fault = context['is_fault']
     spread = context['spread']
     threshold = context['threshold']
@@ -78,26 +125,7 @@ def _build_email_html(context):
             f'</tr>'
         )
 
-    return f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <style>
-            body {{ font-family: Arial, sans-serif; line-height: 1.6; }}
-        </style>
-    </head>
-    <body>
-        <div style="max-width: 600px; margin: 0 auto; padding: 20px; background-color: {BG}; border-radius: 10px;">
-            <h2 style="color: {BRAND}; text-align: center; border-bottom: 2px solid {BRAND}; padding-bottom: 10px;">
-                Solar Monitoring Alert
-            </h2>
-            <div style="text-align:center; margin: 16px 0;">
-                <span style="display:inline-block; background-color:{accent}; color:#fff; padding:6px 16px; border-radius:20px; font-weight:bold; letter-spacing:1px;">
-                    {badge}
-                </span>
-            </div>
-            <div style="background-color: white; padding: 20px; border-radius: 5px; margin-top: 10px;">
-                <h3 style="color:{accent}; margin-top:0;">{title}</h3>
+    body = f"""
                 <p style="color:#333;">{intro}</p>
 
                 <table style="width:100%; border-collapse:collapse; margin-top:16px;">
@@ -119,18 +147,12 @@ def _build_email_html(context):
                     <p style="margin:4px 0;"><strong style="color:{BRAND};">Highest:</strong> {_friendly(max_entity)} ({max_soc:.2f}%)</p>
                     <p style="margin:4px 0;"><strong style="color:{BRAND};">Checked at:</strong> {checked_at}</p>
                 </div>
-            </div>
-            <div style="text-align: center; margin-top: 20px; color: #666; font-size: 12px;">
-                <p>This is an automated message from Alternate Power Solutions</p>
-            </div>
-        </div>
-    </body>
-    </html>
     """
+    return _email_shell(accent, badge, title, body)
 
 
-def _build_telegram_html(context):
-    """Render a formatted Telegram message (Telegram HTML parse mode)."""
+def _build_soc_telegram_html(context):
+    """Render a formatted Telegram message for SOC imbalance (HTML parse mode)."""
     is_fault = context['is_fault']
     spread = context['spread']
     threshold = context['threshold']
@@ -159,6 +181,83 @@ def _build_telegram_html(context):
         lines.append(f"• {html.escape(_friendly(entity_id))}: <b>{soc:.2f}%</b>{marker}")
     lines.append("")
     lines.append(f"<i>Checked at {html.escape(str(checked_at))}</i>")
+    return "\n".join(lines)
+
+
+def _build_behaviour_email_html(context):
+    """Render the branded HTML email body for the charge/discharge behaviour alert."""
+    is_fault = context['is_fault']
+    mode = context.get('mode', '?')
+    expected = context.get('expected', '?')
+    actual = context.get('actual', '?')
+    power = context.get('power')
+    soc = context.get('soc')
+    checked_at = context.get('checked_at', '')
+
+    accent = ALERT_RED if is_fault else OK_GREEN
+    title = 'Battery Not Following Schedule' if is_fault else 'Battery Back On Schedule'
+    badge = 'FAULT' if is_fault else 'RECOVERED'
+    mode_h = html.escape(str(mode).title())
+    if is_fault:
+        intro = (
+            f"This is a <strong>{mode_h}</strong> period in the APS schedule, so the battery "
+            f"should be <strong>{html.escape(expected)}</strong>, but it is currently "
+            f"<strong>{html.escape(actual)}</strong>. The battery is not following the APS schedule."
+        )
+    else:
+        intro = (
+            f"The battery is following the APS schedule again — during this <strong>{mode_h}</strong> "
+            f"period it is correctly <strong>{html.escape(actual)}</strong>."
+        )
+
+    power_txt = f"{power:.1f} kW" if isinstance(power, (int, float)) else "n/a"
+    soc_txt = f"{soc:.0f}%" if isinstance(soc, (int, float)) else "n/a"
+
+    body = f"""
+                <p style="color:#333;">{intro}</p>
+                <div style="margin-top:16px; padding:12px 15px; background-color:{BG}; border-left:4px solid {BRAND};">
+                    <p style="margin:4px 0;"><strong style="color:{BRAND};">Scheduled period:</strong> {mode_h}</p>
+                    <p style="margin:4px 0;"><strong style="color:{BRAND};">Expected:</strong> {html.escape(expected)}</p>
+                    <p style="margin:4px 0;"><strong style="color:{BRAND};">Actual:</strong> {html.escape(actual)}</p>
+                    <p style="margin:4px 0;"><strong style="color:{BRAND};">Battery power:</strong> {power_txt}</p>
+                    <p style="margin:4px 0;"><strong style="color:{BRAND};">Battery SoC:</strong> {soc_txt}</p>
+                    <p style="margin:4px 0;"><strong style="color:{BRAND};">Checked at:</strong> {html.escape(str(checked_at))}</p>
+                </div>
+    """
+    return _email_shell(accent, badge, title, body)
+
+
+def _build_behaviour_telegram_html(context):
+    """Render a formatted Telegram message for the charge/discharge behaviour alert."""
+    is_fault = context['is_fault']
+    mode = str(context.get('mode', '?')).title()
+    expected = context.get('expected', '?')
+    actual = context.get('actual', '?')
+    power = context.get('power')
+    soc = context.get('soc')
+    checked_at = context.get('checked_at', '')
+
+    power_txt = f"{power:.1f} kW" if isinstance(power, (int, float)) else "n/a"
+    soc_txt = f"{soc:.0f}%" if isinstance(soc, (int, float)) else "n/a"
+
+    if is_fault:
+        header = "🔴 <b>BATTERY NOT FOLLOWING SCHEDULE</b>"
+        summary = (
+            f"APS schedule says <b>{html.escape(mode)}</b>, so the battery should be "
+            f"<b>{html.escape(expected)}</b>, but it is <b>{html.escape(actual)}</b>."
+        )
+    else:
+        header = "🟢 <b>BATTERY BACK ON SCHEDULE</b>"
+        summary = f"In the <b>{html.escape(mode)}</b> period the battery is correctly <b>{html.escape(actual)}</b>."
+
+    lines = [
+        header, "", summary, "",
+        f"• Scheduled period: <b>{html.escape(mode)}</b>",
+        f"• Battery power: <b>{power_txt}</b>",
+        f"• Battery SoC: <b>{soc_txt}</b>",
+        "",
+        f"<i>Checked at {html.escape(str(checked_at))}</i>",
+    ]
     return "\n".join(lines)
 
 

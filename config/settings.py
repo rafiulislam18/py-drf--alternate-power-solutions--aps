@@ -234,7 +234,10 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'UTC'
+# Cape Town / South Africa (SAST, GMT+2). USE_TZ stays True, so datetimes are
+# still stored in the DB as UTC — this only controls how times are displayed
+# (admin, templates, timezone.localtime()). No data migration needed.
+TIME_ZONE = 'Africa/Johannesburg'
 
 USE_I18N = True
 
@@ -462,6 +465,38 @@ HA_SOC_ENTITY_IDS = [
 
 # Flag a fault when (max SOC - min SOC) exceeds this many percentage points.
 HA_SOC_IMBALANCE_THRESHOLD = float(os.getenv('HA_SOC_IMBALANCE_THRESHOLD', '10'))
+
+# --- Charge/discharge behaviour check (peak/valley scheduling) ---
+# APS defines the CORRECT peak/valley schedule here. This is the source of truth,
+# NOT the live ems_mode sensor — if the client manually forces a different mode on
+# Home Assistant, our check must alert instead of following their change.
+#
+# Schedule format: comma-separated "HH:MM-HH:MM" windows in HA_SCHEDULE_TIMEZONE
+# (Cape Town / SAST, GMT+2). Windows may wrap past midnight (e.g. "22:00-02:00").
+# Any time not inside a Valley or Peak window is treated as "no expectation".
+HA_SCHEDULE_TIMEZONE = os.getenv('HA_SCHEDULE_TIMEZONE', 'Africa/Johannesburg')
+HA_VALLEY_WINDOWS = [
+    w.strip() for w in os.getenv(
+        'HA_VALLEY_WINDOWS', '00:00-05:45,11:01-16:45'  # battery should CHARGE
+    ).split(',') if w.strip()
+]
+HA_PEAK_WINDOWS = [
+    w.strip() for w in os.getenv(
+        'HA_PEAK_WINDOWS', '05:46-11:00,16:46-23:59'    # battery should DISCHARGE
+    ).split(',') if w.strip()
+]
+
+# Battery telemetry entities.
+HA_BATTERY_POWER_ENTITY = os.getenv('HA_BATTERY_POWER_ENTITY', 'sensor.battery_power')
+HA_BATTERY_SOC_ENTITY = os.getenv('HA_BATTERY_SOC_ENTITY', 'sensor.battery_soc')
+# Battery power sign convention (VERIFIED 2026-06-30): negative = charging,
+# positive = discharging. Deadband (kW): |power| below this counts as idle.
+HA_BATTERY_POWER_DEADBAND_KW = float(os.getenv('HA_BATTERY_POWER_DEADBAND_KW', '5'))
+# SoC limits beyond which not charging/discharging is expected, not a fault.
+HA_CHARGE_FULL_SOC = float(os.getenv('HA_CHARGE_FULL_SOC', '99'))      # valley: can't charge past full
+HA_DISCHARGE_FLOOR_SOC = float(os.getenv('HA_DISCHARGE_FLOOR_SOC', '20'))  # peak: discharge_stop_soc
+# Consecutive wrong-behaviour checks required before alerting (debounce).
+HA_BEHAVIOUR_PERSIST_COUNT = int(os.getenv('HA_BEHAVIOUR_PERSIST_COUNT', '2'))
 
 # --- Alert channels (fault detection) ---
 # Email alerts reuse the EMAIL_* SMTP config above and send to EMAIL_RECIPIENT.

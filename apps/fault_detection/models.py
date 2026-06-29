@@ -11,6 +11,8 @@ class AlertState(models.Model):
     """
     key = models.CharField(max_length=100, unique=True, db_index=True)
     is_active = models.BooleanField(default=False)
+    # Consecutive checks the fault condition has held (debounce before alerting).
+    consecutive_count = models.PositiveSmallIntegerField(default=0)
     last_message = models.TextField(blank=True, default='')
     last_triggered_at = models.DateTimeField(null=True, blank=True)
     last_recovered_at = models.DateTimeField(null=True, blank=True)

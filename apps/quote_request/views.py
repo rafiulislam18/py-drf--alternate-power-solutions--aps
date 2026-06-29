@@ -1,5 +1,6 @@
 from django.core.mail import EmailMessage
 from django.conf import settings
+from django.utils import timezone
 from rest_framework.views import APIView
 from rest_framework import status
 from django.utils.decorators import method_decorator
@@ -89,7 +90,7 @@ class QuoteRequestAPIView(APIView):
                         <p style="background-color: #f8f9fa; padding: 15px; border-left: 4px solid #D96F32; margin-left: 20px;">
                             {instance.message or '-'}
                         </p>
-                        <p><strong style="color: #D96F32;">Submitted At:</strong> {instance.created_at.strftime('%Y-%m-%d %H:%M:%S')}</p>
+                        <p><strong style="color: #D96F32;">Submitted At:</strong> {timezone.localtime(instance.created_at).strftime('%Y-%m-%d %H:%M:%S')}</p>
                     </div>
                     {solar_html}
                     <div style="text-align: center; margin-top: 20px; color: #666; font-size: 12px;">

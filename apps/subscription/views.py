@@ -7,6 +7,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from django.core.mail import EmailMessage
 from django.conf import settings
+from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 from django.http import HttpResponse, JsonResponse
@@ -301,7 +302,7 @@ def payfast_notify(request):
                         <p><strong style="color: #D96F32;">Amount Paid:</strong> R99.00</p>
                         <p><strong style="color: #D96F32;">Payment Status:</strong> Completed</p>
                         <p><strong style="color: #D96F32;">Subscription Length:</strong> {subscription.subscription_length} month{'s' if subscription.subscription_length > 1 else ''}</p>
-                        <p><strong style="color: #D96F32;">Subscription Start:</strong> {subscription.created_at.strftime('%Y-%m-%d %H:%M:%S')}</p>
+                        <p><strong style="color: #D96F32;">Subscription Start:</strong> {timezone.localtime(subscription.created_at).strftime('%Y-%m-%d %H:%M:%S')}</p>
                         <p><strong style="color: #D96F32;">Inverter Type:</strong> {subscription.inverter_type}</p>
                         <p><strong style="color: #D96F32;">Address:</strong></p>
                         <p style="background-color: #f8f9fa; padding: 15px; border-left: 4px solid #D96F32; margin-left: 20px;">
