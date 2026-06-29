@@ -148,6 +148,7 @@ INSTALLED_APPS = [
     'apps.chatbot',
     'apps.container_conversion',
     'apps.core',
+    'apps.fault_detection',
     'apps.quote_request',
     'apps.request_solar_cleaning',
     'apps.subscription',
@@ -435,6 +436,43 @@ CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = 'Africa/Johannesburg'   # ← Client timezone
 CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'
+
+
+# ====================== HOME ASSISTANT / FAULT DETECTION ======================
+# Base URL of the Home Assistant instance (no trailing /api).
+HA_BASE_URL = os.getenv('HA_BASE_URL', 'https://urbangrowth.invertermon.com')
+
+# Long-lived access token (create under HA profile → Security).
+HA_TOKEN = os.getenv('HA_TOKEN')
+
+# Seconds to wait per Home Assistant request before giving up.
+HA_REQUEST_TIMEOUT = int(os.getenv('HA_REQUEST_TIMEOUT', '15'))
+
+# The 6 IES State-of-Charge sensor entity IDs, comma-separated in the env.
+# Defaults are a best guess from the dashboard — replace with the real IDs.
+HA_SOC_ENTITY_IDS = [
+    e.strip()
+    for e in os.getenv(
+        'HA_SOC_ENTITY_IDS',
+        'sensor.ies_1_soc,sensor.ies_2_soc,sensor.ies_3_soc,'
+        'sensor.ies_4_soc,sensor.ies_5_soc,sensor.ies_6_soc',
+    ).split(',')
+    if e.strip()
+]
+
+# Flag a fault when (max SOC - min SOC) exceeds this many percentage points.
+HA_SOC_IMBALANCE_THRESHOLD = float(os.getenv('HA_SOC_IMBALANCE_THRESHOLD', '10'))
+
+# --- Alert channels (fault detection) ---
+# Email alerts reuse the EMAIL_* SMTP config above and send to EMAIL_RECIPIENT.
+ALERT_EMAIL_ENABLED = os.getenv('ALERT_EMAIL_ENABLED', 'False') == 'True'
+
+# Telegram alerts via the Bot API. Create a bot with @BotFather for the token,
+# then find your chat ID (see: python manage.py telegram_chat_id).
+ALERT_TELEGRAM_ENABLED = os.getenv('ALERT_TELEGRAM_ENABLED', 'False') == 'True'
+
+TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
+TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 
 
 # AI Chatbot configurations (Grok)

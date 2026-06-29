@@ -12,6 +12,7 @@ app.config_from_object('django.conf:settings', namespace='CELERY')
 # Explicitly load tasks from your apps (add this block)
 app.autodiscover_tasks([
     'apps.core',          # ← add your app(s) here
+    'apps.fault_detection',
     # 'apps.otherapp',    # if you have more
 ])
 
