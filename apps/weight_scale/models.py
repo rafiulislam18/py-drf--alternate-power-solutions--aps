@@ -16,6 +16,8 @@ class ScaleDevice(models.Model):
         max_length=64,
         unique=True,
         help_text='Stable hardware identifier, e.g. the ESP32 MAC address.',
+        null=True,
+        blank=True,
     )
     name = models.CharField(max_length=120, blank=True)
     location = models.CharField(max_length=200, blank=True)
