@@ -369,6 +369,11 @@ LOGGING = {
             'level': 'WARNING',
             'propagate': False,
         },
+        'apps.weight_scale': {
+            'handlers': ['console', 'file'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
     }
 }
 

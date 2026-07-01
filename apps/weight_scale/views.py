@@ -1,3 +1,5 @@
+import logging
+
 from rest_framework import status
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAdminUser
@@ -12,6 +14,8 @@ from .serializers import (
     WeightReadingIngestSerializer,
     WeightReadingSerializer,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class ReadingPagination(PageNumberPagination):
@@ -37,13 +41,22 @@ class WeightReadingIngestView(APIView):
     permission_classes = [IsAuthenticatedDevice]
 
     def post(self, request):
+        device = request.auth
         serializer = WeightReadingIngestSerializer(data=request.data)
         if serializer.is_valid():
-            reading = serializer.save(device=request.auth)
+            reading = serializer.save(device=device)
+            logger.info(
+                f"Weight reading ingested: device={device.device_id} "
+                f"reading_id={reading.id}"
+            )
             return Response(
                 WeightReadingSerializer(reading).data,
                 status=status.HTTP_201_CREATED,
             )
+        logger.warning(
+            f"Weight reading ingest rejected: device={device.device_id} "
+            f"errors={serializer.errors}"
+        )
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
@@ -68,6 +81,9 @@ class WeightReadingListView(APIView):
         if since:
             qs = qs.filter(received_at__gte=since)
 
+        logger.debug(
+            f"Weight reading list queried: device_id={device_id} since={since}"
+        )
         paginator = self.pagination_class()
         page = paginator.paginate_queryset(qs, request)
         serializer = WeightReadingSerializer(page, many=True)
@@ -80,5 +96,6 @@ class ScaleDeviceListView(APIView):
     permission_classes = [IsAdminUser]
 
     def get(self, request):
+        logger.debug("Scale device list queried")
         serializer = ScaleDeviceSerializer(ScaleDevice.objects.all(), many=True)
         return Response(serializer.data)
