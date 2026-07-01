@@ -52,6 +52,7 @@ urlpatterns = [
     path('subscription/', include('apps.subscription.urls')),
     path('services-projects/', include('apps.services_and_projects.urls')),
     path('dashboard/', include('apps.solar_dashboard.urls')),
+    path('weight-scale/', include('apps.weight_scale.urls')),
 
     # Config URLs for Swagger API Documentation
     # NOTE: Don't create public API Documentation. Create a private custom API Documentation.
