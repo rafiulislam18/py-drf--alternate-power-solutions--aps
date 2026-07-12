@@ -42,10 +42,14 @@ INSTALLED_APPS = [
     'apps.blog',
     'apps.chatbot',
     'apps.container_conversion',
+    'apps.core',
+    'apps.fault_detection',
     'apps.quote_request',
     'apps.request_solar_cleaning',
     'apps.subscription',
     'apps.services_and_projects',
+    'apps.solar_dashboard',
+    'apps.weight_scale',
 ]
 
 MIDDLEWARE = [

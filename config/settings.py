@@ -447,6 +447,11 @@ CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'
 
 
 # ====================== HOME ASSISTANT / FAULT DETECTION ======================
+# Public base URL of the React frontend (no trailing slash). Used to build the
+# fault-alert pickup link included in the email/Telegram alerts. Override per
+# environment via the FRONTEND_BASE_URL env var.
+FRONTEND_BASE_URL = os.getenv('FRONTEND_BASE_URL', 'https://alter-power.co.za').rstrip('/')
+
 # Base URL of the Home Assistant instance (no trailing /api).
 HA_BASE_URL = os.getenv('HA_BASE_URL', 'https://urbangrowth.invertermon.com')
 

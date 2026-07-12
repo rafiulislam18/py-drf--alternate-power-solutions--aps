@@ -12,6 +12,7 @@ formatted Telegram (HTML) message.
 
 import html
 import logging
+from zoneinfo import ZoneInfo
 
 import requests
 from django.conf import settings
@@ -24,6 +25,51 @@ BRAND = '#D96F32'
 BG = '#f8f9fa'
 OK_GREEN = '#2e7d32'
 ALERT_RED = '#c0392b'
+
+
+def _pickup_url(context):
+    """Build the frontend pickup-page URL for an alert, or '' if none is attached.
+
+    tasks.py attaches the FaultAlert's uuid as context['alert_uuid'] when it
+    creates the record on the rising edge. Recovery/behaviour-clear alerts have
+    no pickup, so this returns '' and the CTA is omitted.
+    """
+    alert_uuid = context.get('alert_uuid')
+    if not alert_uuid:
+        return ''
+    base = settings.FRONTEND_BASE_URL
+    return f"{base}/fault-detection/pickup/{alert_uuid}/"
+
+
+def _pickup_cta_html(url):
+    """A branded 'confirm pickup' button + helper text for the fault email."""
+    if not url:
+        return ''
+    return f"""
+                <div style="text-align:center; margin:24px 0 8px;">
+                    <a href="{html.escape(url)}"
+                       style="display:inline-block; background-color:{BRAND}; color:#ffffff;
+                              text-decoration:none; padding:12px 28px; border-radius:24px;
+                              font-weight:bold; letter-spacing:0.5px;">
+                        Confirm Pickup
+                    </a>
+                </div>
+                <p style="text-align:center; color:#666; font-size:13px; margin:4px 0 0;">
+                    Are you picking up this alert? Please click the button above and enter your
+                    name so the team knows it's being handled.
+                </p>
+    """
+
+
+def _pickup_cta_telegram(url):
+    """Helper lines prompting the responder to confirm pickup via the link."""
+    if not url:
+        return []
+    return [
+        "",
+        "\U0001F449 <b>Are you picking this up?</b>",
+        f'Please confirm here so the team knows it\'s handled:\n{html.escape(url)}',
+    ]
 
 
 def _friendly(entity_id):
@@ -39,6 +85,8 @@ def _friendly(entity_id):
 
 def _build_email_html(context):
     """Route to the right email body based on the alert kind."""
+    if context.get('kind') == 'pickup_confirmation':
+        return _build_pickup_email_html(context)
     if context.get('kind') == 'charge_behaviour':
         return _build_behaviour_email_html(context)
     return _build_soc_email_html(context)
@@ -46,6 +94,8 @@ def _build_email_html(context):
 
 def _build_telegram_html(context):
     """Route to the right Telegram body based on the alert kind."""
+    if context.get('kind') == 'pickup_confirmation':
+        return _build_pickup_telegram_html(context)
     if context.get('kind') == 'charge_behaviour':
         return _build_behaviour_telegram_html(context)
     return _build_soc_telegram_html(context)
@@ -147,6 +197,7 @@ def _build_soc_email_html(context):
                     <p style="margin:4px 0;"><strong style="color:{BRAND};">Highest:</strong> {_friendly(max_entity)} ({max_soc:.2f}%)</p>
                     <p style="margin:4px 0;"><strong style="color:{BRAND};">Checked at:</strong> {checked_at}</p>
                 </div>
+                {_pickup_cta_html(_pickup_url(context)) if is_fault else ''}
     """
     return _email_shell(accent, badge, title, body)
 
@@ -181,6 +232,8 @@ def _build_soc_telegram_html(context):
         lines.append(f"• {html.escape(_friendly(entity_id))}: <b>{soc:.2f}%</b>{marker}")
     lines.append("")
     lines.append(f"<i>Checked at {html.escape(str(checked_at))}</i>")
+    if is_fault:
+        lines.extend(_pickup_cta_telegram(_pickup_url(context)))
     return "\n".join(lines)
 
 
@@ -223,6 +276,7 @@ def _build_behaviour_email_html(context):
                     <p style="margin:4px 0;"><strong style="color:{BRAND};">Battery SoC:</strong> {soc_txt}</p>
                     <p style="margin:4px 0;"><strong style="color:{BRAND};">Checked at:</strong> {html.escape(str(checked_at))}</p>
                 </div>
+                {_pickup_cta_html(_pickup_url(context)) if is_fault else ''}
     """
     return _email_shell(accent, badge, title, body)
 
@@ -258,6 +312,8 @@ def _build_behaviour_telegram_html(context):
         "",
         f"<i>Checked at {html.escape(str(checked_at))}</i>",
     ]
+    if is_fault:
+        lines.extend(_pickup_cta_telegram(_pickup_url(context)))
     return "\n".join(lines)
 
 
@@ -326,5 +382,76 @@ def dispatch_alert(subject, context):
     """
     return {
         'email': send_email_alert(subject, context),
+        'telegram': send_telegram_alert(context),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Pickup confirmation ("X has picked up this alert")
+# ---------------------------------------------------------------------------
+
+def _build_pickup_email_html(context):
+    """Branded email confirming who picked up a fault alert."""
+    who = html.escape(str(context.get('picked_up_by', 'Someone')))
+    fault = html.escape(str(context.get('fault_label', 'a fault alert')))
+    picked_at = html.escape(str(context.get('picked_up_at', '')))
+    summary = context.get('summary', '')
+
+    body = f"""
+                <p style="color:#333;">
+                    <strong>{who}</strong> has confirmed pickup of the following alert and is
+                    now handling it.
+                </p>
+                <div style="margin-top:16px; padding:12px 15px; background-color:{BG}; border-left:4px solid {OK_GREEN};">
+                    <p style="margin:4px 0;"><strong style="color:{BRAND};">Alert:</strong> {fault}</p>
+                    <p style="margin:4px 0;"><strong style="color:{BRAND};">Picked up by:</strong> {who}</p>
+                    <p style="margin:4px 0;"><strong style="color:{BRAND};">Picked up at:</strong> {picked_at}</p>
+                </div>
+    """
+    if summary:
+        body += (
+            f'<p style="color:#888; font-size:12px; margin-top:16px;">Original alert: '
+            f'{html.escape(str(summary))}</p>'
+        )
+    return _email_shell(OK_GREEN, 'PICKED UP', 'Alert Picked Up', body)
+
+
+def _build_pickup_telegram_html(context):
+    """Telegram message confirming who picked up a fault alert."""
+    who = html.escape(str(context.get('picked_up_by', 'Someone')))
+    fault = html.escape(str(context.get('fault_label', 'a fault alert')))
+    picked_at = html.escape(str(context.get('picked_up_at', '')))
+    return "\n".join([
+        "✅ <b>ALERT PICKED UP</b>",
+        "",
+        f"<b>{who}</b> is now handling this alert:",
+        f"• {fault}",
+        "",
+        f"<i>Picked up at {picked_at}</i>",
+    ])
+
+
+def dispatch_pickup_confirmation(alert):
+    """
+    Notify the team that `alert` has been claimed. Reuses the same channels the
+    original fault went out on (email + Telegram). Sent once, when the claim
+    succeeds. Delivery failures are logged and swallowed by the senders.
+    """
+    fault_label = alert.get_kind_display()
+    # Project TIME_ZONE is UTC, so convert to the schedule timezone (SAST) for
+    # display — consistent with how tasks.py stamps its timestamps.
+    picked_at = ''
+    if alert.picked_up_at:
+        tz_name = getattr(settings, 'HA_SCHEDULE_TIMEZONE', None) or settings.CELERY_TIMEZONE
+        picked_at = alert.picked_up_at.astimezone(ZoneInfo(tz_name)).strftime('%d/%m/%Y %H:%M')
+    context = {
+        'kind': 'pickup_confirmation',
+        'picked_up_by': alert.picked_up_by,
+        'picked_up_at': picked_at,
+        'fault_label': fault_label,
+        'summary': alert.summary,
+    }
+    return {
+        'email': send_email_alert(f"APS Solar Alert Picked Up: {fault_label}", context),
         'telegram': send_telegram_alert(context),
     }

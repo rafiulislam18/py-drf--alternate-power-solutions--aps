@@ -304,9 +304,11 @@ def _handle_behaviour_transition(faulted, context, message=''):
             state.last_message = message
             state.last_triggered_at = now
             state.save()
+            alert = _create_fault_alert(kind=CHARGE_BEHAVIOUR_KEY, summary=message)
+            alert_context = {**_behaviour_alert_context(context, is_fault=True), 'alert_uuid': str(alert.uuid)}
             results = dispatch_alert(
                 subject="APS Solar Fault: Battery Not Following Schedule",
-                context=_behaviour_alert_context(context, is_fault=True),
+                context=alert_context,
             )
             logger.warning("Charge-behaviour alert dispatched: %s", results)
         else:
@@ -404,6 +406,13 @@ def check_soc_imbalance(self):
     return message
 
 
+def _create_fault_alert(kind, summary):
+    """Persist a FaultAlert row for a newly-raised fault (pickup tracking)."""
+    from .models import FaultAlert
+
+    return FaultAlert.objects.create(kind=kind, summary=summary)
+
+
 def _handle_transition(key, faulted, message, context):
     """
     Compare the current fault state with the stored state and fire an alert only
@@ -421,6 +430,10 @@ def _handle_transition(key, faulted, message, context):
         state.last_message = message
         state.last_triggered_at = now
         state.save()
+        # Persist a FaultAlert so the team can confirm pickup, and attach its
+        # uuid so the alert renders a pickup link.
+        alert = _create_fault_alert(kind=key, summary=message)
+        context = {**context, 'alert_uuid': str(alert.uuid)}
         results = dispatch_alert(subject="APS Solar Fault: SOC Imbalance Detected", context=context)
         logger.warning("SOC imbalance alert dispatched: %s", results)
 
