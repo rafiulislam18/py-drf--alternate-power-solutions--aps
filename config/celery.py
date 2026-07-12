@@ -13,6 +13,7 @@ app.config_from_object('django.conf:settings', namespace='CELERY')
 app.autodiscover_tasks([
     'apps.core',          # ← add your app(s) here
     'apps.fault_detection',
+    'apps.whatsapp_import',
     # 'apps.otherapp',    # if you have more
 ])
 

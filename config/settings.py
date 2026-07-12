@@ -155,6 +155,7 @@ INSTALLED_APPS = [
     'apps.services_and_projects',
     'apps.solar_dashboard',
     'apps.weight_scale',
+    'apps.whatsapp_import',
 
     # Celery Beat for periodic tasks (at last to avoid circular imports with tasks)
     'django_celery_beat',
@@ -518,6 +519,31 @@ ALERT_TELEGRAM_ENABLED = os.getenv('ALERT_TELEGRAM_ENABLED', 'False') == 'True'
 
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
+
+
+# ====================== WHATSAPP CHAT IMPORT ======================
+# Nightly (00:00 SAST) pull of manually-exported WhatsApp chat files from a
+# shared Google Drive folder into one DB row per message.
+#
+# Auth NOTE: the export folder is shared to support@alter-power.co.za, which is a
+# DIFFERENT Google account from the info@ one used by the DB-backup task. So this
+# uses its OWN OAuth2 token pickle — do not reuse TOKEN_PICKLE_PATH. Create it by
+# running the OAuth2 authorisation script signed in as support@ and saving the
+# pickle at WHATSAPP_TOKEN_PICKLE_PATH.
+WHATSAPP_TOKEN_PICKLE_PATH = os.getenv('WHATSAPP_TOKEN_PICKLE_PATH')
+WHATSAPP_DRIVE_FOLDER_ID = os.getenv('WHATSAPP_DRIVE_FOLDER_ID')
+# Timezone the team exports in — exported timestamps have no tz marker and are
+# Cape Town wall-clock time. Used to store sent_at so it round-trips exactly.
+WHATSAPP_EXPORT_TIMEZONE = os.getenv('WHATSAPP_EXPORT_TIMEZONE', 'Africa/Johannesburg')
+
+# --- Jobs spreadsheet export ---
+# Messages the ops manager marks as jobs are pushed to the APS Open Jobs Google
+# Sheet via its Apps Script web-app doPost endpoint. WHATSAPP_JOBS_SHEET_URL is
+# the deployed web-app URL (…/exec); WHATSAPP_JOBS_SHEET_TOKEN must match the
+# INBOUND.TOKEN constant in that Apps Script (shared secret, since the endpoint
+# is "Anyone"-accessible and cannot use Google login from our server).
+WHATSAPP_JOBS_SHEET_URL = os.getenv('WHATSAPP_JOBS_SHEET_URL', '')
+WHATSAPP_JOBS_SHEET_TOKEN = os.getenv('WHATSAPP_JOBS_SHEET_TOKEN', '')
 
 
 # AI Chatbot configurations (Grok)

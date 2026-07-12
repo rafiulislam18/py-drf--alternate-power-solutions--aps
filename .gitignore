@@ -209,3 +209,7 @@ __marimo__/
 
 # Google API credentials
 token.pickle
+*.pickle
+client_secret*.json
+credentials*.json
+whatsapp_support_token.pickle
