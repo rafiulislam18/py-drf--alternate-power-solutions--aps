@@ -14,6 +14,7 @@ app.autodiscover_tasks([
     'apps.core',          # ← add your app(s) here
     'apps.fault_detection',
     'apps.whatsapp_import',
+    'apps.subscription_sheet',
     # 'apps.otherapp',    # if you have more
 ])
 

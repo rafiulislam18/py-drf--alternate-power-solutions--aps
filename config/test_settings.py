@@ -51,6 +51,7 @@ INSTALLED_APPS = [
     'apps.solar_dashboard',
     'apps.weight_scale',
     'apps.whatsapp_import',
+    'apps.subscription_sheet',
 ]
 
 MIDDLEWARE = [

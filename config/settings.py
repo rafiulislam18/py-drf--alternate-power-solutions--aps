@@ -156,6 +156,7 @@ INSTALLED_APPS = [
     'apps.solar_dashboard',
     'apps.weight_scale',
     'apps.whatsapp_import',
+    'apps.subscription_sheet',
 
     # Celery Beat for periodic tasks (at last to avoid circular imports with tasks)
     'django_celery_beat',
@@ -544,6 +545,13 @@ WHATSAPP_EXPORT_TIMEZONE = os.getenv('WHATSAPP_EXPORT_TIMEZONE', 'Africa/Johanne
 # is "Anyone"-accessible and cannot use Google login from our server).
 WHATSAPP_JOBS_SHEET_URL = os.getenv('WHATSAPP_JOBS_SHEET_URL', '')
 WHATSAPP_JOBS_SHEET_TOKEN = os.getenv('WHATSAPP_JOBS_SHEET_TOKEN', '')
+
+# --- Subscriptions sheet export ---
+# The "APS Subscriptions" tab lives in the SAME spreadsheet / Apps Script web app
+# as the jobs export, routed by a `type` field in the POST. So by default it
+# reuses the same URL + token; override only if you deploy a separate script.
+APS_SUBSCRIPTION_SHEET_URL = os.getenv('APS_SUBSCRIPTION_SHEET_URL', WHATSAPP_JOBS_SHEET_URL)
+APS_SUBSCRIPTION_SHEET_TOKEN = os.getenv('APS_SUBSCRIPTION_SHEET_TOKEN', WHATSAPP_JOBS_SHEET_TOKEN)
 
 
 # AI Chatbot configurations (Grok)

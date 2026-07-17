@@ -268,7 +268,8 @@ def payfast_notify(request):
             # Payment successful
             subscription.is_active = True
             subscription.payfast_token = token  # Store token for subscription management
-            
+            subscription.last_payment_date = timezone.now()  # Stamp each confirmed payment
+
             # Increment subscription length for recurring payments
             if post_data.get('item_name') == 'Monthly Subscription':
                 subscription.subscription_length += 1
