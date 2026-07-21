@@ -14,16 +14,17 @@ class ImportedFileAdmin(admin.ModelAdmin):
 
 @admin.register(WhatsAppMessage)
 class WhatsAppMessageAdmin(admin.ModelAdmin):
-    list_display = ('sent_at', 'sender', 'short_text', 'chat_name', 'marked_as_job', 'exported_to_jobs_sheet')
-    list_filter = ('marked_as_job', 'exported_to_jobs_sheet', 'chat_name')
+    list_display = ('sent_at', 'sender', 'short_text', 'chat_name', 'marked_as_job', 'dismissed', 'exported_to_jobs_sheet')
+    list_filter = ('marked_as_job', 'dismissed', 'exported_to_jobs_sheet', 'chat_name')
     search_fields = ('sender', 'text', 'chat_name')
     date_hierarchy = 'sent_at'
     readonly_fields = ('sender', 'sent_at', 'text', 'chat_name', 'source_file', 'imported_at',
-                       'marked_as_job_at', 'exported_to_jobs_sheet_at')
-    # The ops manager only toggles the job flag; everything else is import data.
+                       'marked_as_job_at', 'exported_to_jobs_sheet_at', 'dismissed_at')
+    # The ops manager toggles the job / dismiss flags; everything else is import data.
     fields = ('sender', 'sent_at', 'text', 'chat_name', 'source_file', 'imported_at',
-              'marked_as_job', 'marked_as_job_at', 'exported_to_jobs_sheet', 'exported_to_jobs_sheet_at')
-    actions = ('mark_as_job', 'unmark_as_job')
+              'marked_as_job', 'marked_as_job_at', 'dismissed', 'dismissed_at',
+              'exported_to_jobs_sheet', 'exported_to_jobs_sheet_at')
+    actions = ('mark_as_job', 'unmark_as_job', 'dismiss_messages', 'undismiss_messages')
 
     @admin.display(description='Message')
     def short_text(self, obj):
@@ -44,3 +45,15 @@ class WhatsAppMessageAdmin(admin.ModelAdmin):
             marked_as_job=False, marked_as_job_at=None
         )
         self.message_user(request, f"{updated} message(s) unmarked.")
+
+    @admin.action(description="Dismiss selected as 'not a job'")
+    def dismiss_messages(self, request, queryset):
+        updated = queryset.filter(dismissed=False).update(
+            dismissed=True, dismissed_at=timezone.now()
+        )
+        self.message_user(request, f"{updated} message(s) dismissed.")
+
+    @admin.action(description="Un-dismiss selected messages")
+    def undismiss_messages(self, request, queryset):
+        updated = queryset.filter(dismissed=True).update(dismissed=False, dismissed_at=None)
+        self.message_user(request, f"{updated} message(s) un-dismissed.")

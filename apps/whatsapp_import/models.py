@@ -58,6 +58,12 @@ class WhatsAppMessage(models.Model):
     exported_to_jobs_sheet = models.BooleanField(default=False, db_index=True)
     exported_to_jobs_sheet_at = models.DateTimeField(null=True, blank=True)
 
+    # --- Triage: explicitly dismissed as "not a job" ---
+    # Independent of marked_as_job. Dismissed messages are hidden from the default
+    # review view so the queue only shows what still needs triaging. Reversible.
+    dismissed = models.BooleanField(default=False, db_index=True)
+    dismissed_at = models.DateTimeField(null=True, blank=True)
+
     class Meta:
         ordering = ['-sent_at']
         indexes = [

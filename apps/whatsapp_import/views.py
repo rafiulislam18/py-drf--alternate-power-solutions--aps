@@ -19,7 +19,8 @@ from apps.solar_dashboard.views import get_role
 from .jobs_export import JobsSheetConfigError, export_marked_jobs, pending_jobs_qs
 from .models import WhatsAppMessage
 from .serializers import (
-    BulkMarkJobSerializer, MarkJobSerializer, WhatsAppMessageSerializer,
+    BulkDismissSerializer, BulkMarkJobSerializer, DismissSerializer,
+    MarkJobSerializer, WhatsAppMessageSerializer,
 )
 
 
@@ -42,7 +43,13 @@ class WhatsAppMessageListView(APIView):
 
     Query params:
       chat      — filter to one conversation (exact chat_name)
-      status    — 'marked' | 'unmarked' | 'all' (default 'all')
+      status    — one of:
+                    'unmarked'  (default) not a job AND not dismissed — the triage queue
+                    'marked'    marked as a job
+                    'dismissed' explicitly marked "not a job"
+                    'all'       everything, including dismissed
+                  Note: every view EXCEPT 'dismissed' and 'all' hides dismissed
+                  messages, so dismissed noise stays out of the working view.
       search    — substring match on text or sender
       page, page_size
     """
@@ -60,11 +67,15 @@ class WhatsAppMessageListView(APIView):
         if chat:
             qs = qs.filter(chat_name=chat)
 
-        job_status = request.query_params.get('status', 'all')
+        job_status = request.query_params.get('status', 'unmarked')
         if job_status == 'marked':
-            qs = qs.filter(marked_as_job=True)
-        elif job_status == 'unmarked':
-            qs = qs.filter(marked_as_job=False)
+            qs = qs.filter(marked_as_job=True, dismissed=False)
+        elif job_status == 'dismissed':
+            qs = qs.filter(dismissed=True)
+        elif job_status == 'all':
+            pass  # everything, dismissed included
+        else:  # 'unmarked' — the default triage queue
+            qs = qs.filter(marked_as_job=False, dismissed=False)
 
         search = request.query_params.get('search', '').strip()
         if search:
@@ -74,6 +85,28 @@ class WhatsAppMessageListView(APIView):
         page = paginator.paginate_queryset(qs, request)
         serializer = WhatsAppMessageSerializer(page, many=True)
         return paginator.get_paginated_response(serializer.data)
+
+
+class WhatsAppStatusCountsView(APIView):
+    """GET the per-status message tallies for the filter tabs (respects `chat`)."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        forbidden = _require_admin(request)
+        if forbidden:
+            return forbidden
+
+        qs = WhatsAppMessage.objects.all()
+        chat = request.query_params.get('chat', '').strip()
+        if chat:
+            qs = qs.filter(chat_name=chat)
+
+        return Response({
+            'unmarked': qs.filter(marked_as_job=False, dismissed=False).count(),
+            'marked': qs.filter(marked_as_job=True, dismissed=False).count(),
+            'dismissed': qs.filter(dismissed=True).count(),
+            'all': qs.count(),
+        })
 
 
 class WhatsAppChatListView(APIView):
@@ -141,6 +174,69 @@ class WhatsAppMessageBulkMarkView(APIView):
             updated = (WhatsAppMessage.objects
                        .filter(pk__in=ids, exported_to_jobs_sheet=False)
                        .update(marked_as_job=False, marked_as_job_at=None))
+        return Response({'updated': updated}, status=status.HTTP_200_OK)
+
+
+class WhatsAppMessageDismissView(APIView):
+    """PATCH a single message's 'not a job' dismissal (reversible)."""
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, pk):
+        forbidden = _require_admin(request)
+        if forbidden:
+            return forbidden
+
+        try:
+            message = WhatsAppMessage.objects.get(pk=pk)
+        except WhatsAppMessage.DoesNotExist:
+            return Response({'detail': 'Message not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = DismissSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        dismiss = serializer.validated_data['dismissed']
+
+        if dismiss:
+            message.dismissed = True
+            message.dismissed_at = timezone.now()
+            # Dismissing something as "not a job" implies it isn't a job — clear
+            # the job flag too, but never touch one already exported to the sheet.
+            if message.marked_as_job and not message.exported_to_jobs_sheet:
+                message.marked_as_job = False
+                message.marked_as_job_at = None
+        else:
+            message.dismissed = False
+            message.dismissed_at = None
+        message.save(update_fields=['dismissed', 'dismissed_at', 'marked_as_job', 'marked_as_job_at'])
+        return Response(WhatsAppMessageSerializer(message).data, status=status.HTTP_200_OK)
+
+
+class WhatsAppMessageBulkDismissView(APIView):
+    """POST to dismiss/un-dismiss several messages at once."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        forbidden = _require_admin(request)
+        if forbidden:
+            return forbidden
+
+        serializer = BulkDismissSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        ids = serializer.validated_data['ids']
+        dismiss = serializer.validated_data['dismissed']
+
+        now = timezone.now()
+        if dismiss:
+            updated = (WhatsAppMessage.objects
+                       .filter(pk__in=ids, dismissed=False)
+                       .update(dismissed=True, dismissed_at=now))
+            # Clear job flag on newly-dismissed ones not yet exported.
+            (WhatsAppMessage.objects
+             .filter(pk__in=ids, marked_as_job=True, exported_to_jobs_sheet=False)
+             .update(marked_as_job=False, marked_as_job_at=None))
+        else:
+            updated = (WhatsAppMessage.objects
+                       .filter(pk__in=ids, dismissed=True)
+                       .update(dismissed=False, dismissed_at=None))
         return Response({'updated': updated}, status=status.HTTP_200_OK)
 
 
