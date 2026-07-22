@@ -1,17 +1,21 @@
 """
-Sync all quote requests into two tabs of the "APS Open Jobs" Google Sheet.
+Sync all quote requests into three tabs of the "APS Open Jobs" Google Sheet.
 
 Sources:
-  - apps.quote_request.QuoteRequest         -> "Quote Requests" tab
-      (+ its optional one-to-one SolarQuoteDetails, flattened into extra columns)
-  - apps.container_conversion.ServiceRequest -> "Container Conversion Quotes" tab
+  - apps.quote_request.QuoteRequest (non-solar) -> "Website Quote Requests" tab
+  - apps.quote_request.QuoteRequest where the service is exactly
+        "Solar PV System Design & Installation"  -> "Website Solar Quote Requests"
+        tab (+ its one-to-one SolarQuoteDetails, flattened into extra columns)
+  - apps.container_conversion.ServiceRequest     -> "Website Container Conversion
+        Quotes" tab
 
-Per ops request we export ALL rows (regardless of status). Each sheet UPSERTS by
-the row's database id: new quotes are appended, existing rows have their columns
-refreshed, and any admin-added "Notes" column in the sheet is never touched.
+A QuoteRequest goes to EITHER the regular or the solar tab (by service title),
+never both. Per ops request we export ALL rows (regardless of status). Each sheet
+UPSERTS by the row's database id: new quotes are appended, existing rows have
+their columns refreshed, and any admin-added "Notes" column is never touched.
 
 Routed to the same Apps Script web app as the jobs/subscriptions exports via a
-`type` field in the POST ("quote_requests" and "container_quotes").
+`type` field in the POST ("quote_requests", "solar_quotes", "container_quotes").
 """
 
 import logging
@@ -25,6 +29,10 @@ from apps.container_conversion.models import ServiceRequest
 from .models import ExportedQuote
 
 logger = logging.getLogger(__name__)
+
+# A QuoteRequest whose service has exactly this title is a "solar" quote and goes
+# to the dedicated solar tab (with the full SolarQuoteDetails columns).
+SOLAR_SERVICE_TITLE = 'Solar PV System Design & Installation'
 
 
 class QuoteSheetConfigError(Exception):
@@ -44,15 +52,23 @@ def _yes_no(val):
     return 'Yes' if val else 'No'
 
 
-def _build_regular_items():
-    """One dict per QuoteRequest, with SolarQuoteDetails flattened in."""
-    items = []
-    qs = (QuoteRequest.objects
-          .select_related('service', 'solar_details')
-          .order_by('id'))
+def _regular_qs():
+    """All QuoteRequests, split downstream by service title."""
+    return (QuoteRequest.objects
+            .select_related('service', 'solar_details')
+            .order_by('id'))
 
-    for q in qs:
-        d = getattr(q, 'solar_details', None)
+
+def _is_solar(q):
+    return bool(q.service and q.service.title == SOLAR_SERVICE_TITLE)
+
+
+def _build_regular_items():
+    """One dict per NON-solar QuoteRequest (no solar-detail columns)."""
+    items = []
+    for q in _regular_qs():
+        if _is_solar(q):
+            continue
         items.append({
             'key': f"{ExportedQuote.KIND_REGULAR}:{q.id}",
             'quote_id': q.id,
@@ -63,7 +79,28 @@ def _build_regular_items():
             'service': q.service.title if q.service else '',
             'message': q.message or '',
             'sent_quote': _yes_no(q.sent_quote),
-            # --- Solar-specific details (blank when not a solar request) ---
+            'created_at': _fmt_dt(q.created_at),
+        })
+    return items
+
+
+def _build_solar_items():
+    """One dict per SOLAR QuoteRequest, with SolarQuoteDetails flattened in."""
+    items = []
+    for q in _regular_qs():
+        if not _is_solar(q):
+            continue
+        d = getattr(q, 'solar_details', None)
+        items.append({
+            'key': f"{ExportedQuote.KIND_SOLAR}:{q.id}",
+            'quote_id': q.id,
+            'name': q.name or '',
+            'email': q.email or '',
+            'phone': q.phone or '',
+            'company': q.company or '',
+            'message': q.message or '',
+            'sent_quote': _yes_no(q.sent_quote),
+            # --- Solar-specific details ---
             'property_type': d.get_property_type_display() if d and d.property_type else '',
             'suburb': (d.suburb or '') if d else '',
             'province': d.get_province_display() if d and d.province else '',
@@ -172,15 +209,18 @@ def _sync_one(kind, sheet_type, items):
 
 def sync_quotes():
     """
-    Push all quote requests to their two sheet tabs (upsert).
+    Push all quote requests to their three sheet tabs (upsert).
 
-    Returns {regular: {...}, container: {...}}. Never raises for a delivery
-    problem (recorded per-kind in 'error'); raises QuoteSheetConfigError only
-    for missing config.
+    Returns {regular: {...}, solar: {...}, container: {...}}. Never raises for a
+    delivery problem (recorded per-kind in 'error'); raises QuoteSheetConfigError
+    only for missing config.
     """
     return {
         'regular': _sync_one(
             ExportedQuote.KIND_REGULAR, 'quote_requests', _build_regular_items()
+        ),
+        'solar': _sync_one(
+            ExportedQuote.KIND_SOLAR, 'solar_quotes', _build_solar_items()
         ),
         'container': _sync_one(
             ExportedQuote.KIND_CONTAINER, 'container_quotes', _build_container_items()
