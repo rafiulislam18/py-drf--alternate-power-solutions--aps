@@ -52,6 +52,7 @@ INSTALLED_APPS = [
     'apps.weight_scale',
     'apps.whatsapp_import',
     'apps.subscription_sheet',
+    'apps.quote_sheet',
 ]
 
 MIDDLEWARE = [

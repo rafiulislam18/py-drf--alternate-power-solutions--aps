@@ -157,6 +157,7 @@ INSTALLED_APPS = [
     'apps.weight_scale',
     'apps.whatsapp_import',
     'apps.subscription_sheet',
+    'apps.quote_sheet',
 
     # Celery Beat for periodic tasks (at last to avoid circular imports with tasks)
     'django_celery_beat',
@@ -552,6 +553,14 @@ WHATSAPP_JOBS_SHEET_TOKEN = os.getenv('WHATSAPP_JOBS_SHEET_TOKEN', '')
 # reuses the same URL + token; override only if you deploy a separate script.
 APS_SUBSCRIPTION_SHEET_URL = os.getenv('APS_SUBSCRIPTION_SHEET_URL', WHATSAPP_JOBS_SHEET_URL)
 APS_SUBSCRIPTION_SHEET_TOKEN = os.getenv('APS_SUBSCRIPTION_SHEET_TOKEN', WHATSAPP_JOBS_SHEET_TOKEN)
+
+# --- Quotes sheet export ---
+# The "Quote Requests" and "Container Conversion Quotes" tabs live in the SAME
+# spreadsheet / Apps Script web app as the jobs export, routed by a `type` field
+# in the POST. So by default they reuse the same URL + token; override only if you
+# deploy a separate script.
+APS_QUOTE_SHEET_URL = os.getenv('APS_QUOTE_SHEET_URL', WHATSAPP_JOBS_SHEET_URL)
+APS_QUOTE_SHEET_TOKEN = os.getenv('APS_QUOTE_SHEET_TOKEN', WHATSAPP_JOBS_SHEET_TOKEN)
 
 
 # AI Chatbot configurations (Grok)
