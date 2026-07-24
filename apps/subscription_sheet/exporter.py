@@ -1,5 +1,5 @@
 """
-Sync valid subscriptions from both apps into the "APS Subscriptions" Google Sheet.
+Sync valid subscriptions from both apps into the "Website Subscriptions" Google Sheet.
 
 Sources:
   - apps.subscription.Subscription           -> "Inverter & Battery Monitoring Plan" (R99/mo)
@@ -116,7 +116,7 @@ def _build_items():
 
 def sync_subscriptions():
     """
-    Push all valid subscriptions to the APS Subscriptions sheet (upsert).
+    Push all valid subscriptions to the Website Subscriptions sheet (upsert).
 
     Returns stats: {sent, created, updated, error}. Records/refreshes an
     ExportedSubscription row per sent item on success so we can report new vs.

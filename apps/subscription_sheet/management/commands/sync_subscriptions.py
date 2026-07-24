@@ -1,5 +1,5 @@
 """
-Sync valid subscriptions (both apps) to the APS Subscriptions Google Sheet.
+Sync valid subscriptions (both apps) to the Website Subscriptions Google Sheet.
 
 Same logic the nightly task runs. Useful for a manual sync or first backfill.
 
@@ -15,7 +15,7 @@ from apps.subscription_sheet.exporter import (
 
 
 class Command(BaseCommand):
-    help = "Push all valid subscriptions to the APS Subscriptions Google Sheet."
+    help = "Push all valid subscriptions to the Website Subscriptions Google Sheet."
 
     def handle(self, *args, **options):
         try:

@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=600)
 def sync_subscriptions_to_sheet(self):
-    """Push all valid subscriptions (both apps) to the APS Subscriptions sheet."""
+    """Push all valid subscriptions (both apps) to the Website Subscriptions sheet."""
     try:
         stats = sync_subscriptions()
     except SubscriptionSheetConfigError as exc:

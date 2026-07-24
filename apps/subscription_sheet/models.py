@@ -3,7 +3,7 @@ from django.db import models
 
 class ExportedSubscription(models.Model):
     """
-    Tracks which subscriptions have been pushed to the APS Subscriptions Google
+    Tracks which subscriptions have been pushed to the Website Subscriptions Google
     Sheet, so the sync knows what's new vs. already-there.
 
     Data lives in the two source apps (subscription.Subscription and

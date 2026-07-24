@@ -1,5 +1,5 @@
 """
-Tests for the APS Subscriptions sheet sync (apps.subscription_sheet).
+Tests for the Website Subscriptions sheet sync (apps.subscription_sheet).
 
 The Apps Script POST is always mocked. Covers: the payfast_token validity
 filter, field mapping for both plans, plan-specific columns, upsert dedup
