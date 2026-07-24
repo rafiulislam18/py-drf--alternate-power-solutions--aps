@@ -8,6 +8,8 @@ from .views import (
     SolarReportDateRangeView,
     ClientListView,
     CreateClientView,
+    SiteListCreateView,
+    SiteDetailView,
 )
 
 urlpatterns = [
@@ -19,4 +21,6 @@ urlpatterns = [
     path('reports/<uuid:uuid>/date-range/', SolarReportDateRangeView.as_view(), name='solar-report-date-range'),
     path('clients/', ClientListView.as_view(), name='client-list'),
     path('clients/create/', CreateClientView.as_view(), name='client-create'),
+    path('sites/', SiteListCreateView.as_view(), name='site-list-create'),
+    path('sites/<int:pk>/', SiteDetailView.as_view(), name='site-detail'),
 ]

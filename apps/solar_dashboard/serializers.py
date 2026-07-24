@@ -1,7 +1,8 @@
 from django.contrib.auth.models import User
+from django.db import transaction
 from rest_framework import serializers
 from apps.core.models import ClientProfile
-from .models import SolarReport, SiteData
+from .models import SolarReport, SiteData, Site
 
 
 class ClientProfileSerializer(serializers.ModelSerializer):
@@ -69,16 +70,80 @@ class CreateClientUserSerializer(serializers.Serializer):
         return user
 
 
+class SiteSerializer(serializers.ModelSerializer):
+    """Reusable per-client site (identity: name + battery). Admin-managed."""
+    client_id = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.all(),
+        source='client',
+        write_only=True,
+    )
+    client = ClientUserSerializer(read_only=True)
+    data_row_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Site
+        fields = [
+            'id', 'client', 'client_id', 'name', 'has_battery',
+            'is_active', 'order', 'data_row_count',
+            'created_at', 'updated_at',
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+    def get_data_row_count(self, obj):
+        # How many report rows reference this site (used to guard hard-delete).
+        return obj.data_rows.count()
+
+    def validate(self, attrs):
+        # Enforce unique (client, name) with a friendly message (case-insensitive),
+        # accounting for create vs. update.
+        client = attrs.get('client') or getattr(self.instance, 'client', None)
+        name = attrs.get('name') or getattr(self.instance, 'name', None)
+        if client and name:
+            qs = Site.objects.filter(client=client, name__iexact=name)
+            if self.instance:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                raise serializers.ValidationError(
+                    {'name': 'This client already has a site with that name.'}
+                )
+        return attrs
+
+
+class NestedSiteSerializer(serializers.ModelSerializer):
+    """Read-only site identity nested inside a SiteData row."""
+    class Meta:
+        model = Site
+        fields = ['id', 'name', 'has_battery', 'is_active', 'order']
+
+
 class SiteDataSerializer(serializers.ModelSerializer):
+    # NEW: link to a reusable Site by id (write). Optional during the transition —
+    # old payloads that send only site_name/has_battery still work.
+    site_id = serializers.PrimaryKeyRelatedField(
+        queryset=Site.objects.all(),
+        source='site',
+        write_only=True,
+        required=False,
+        allow_null=True,
+    )
+    # Read-only nested identity so the frontend gets the Site's name/battery/active.
+    site = NestedSiteSerializer(read_only=True)
+
     class Meta:
         model = SiteData
         fields = [
-            'id', 'order', 'site_name', 'has_battery',
+            'id', 'order', 'site_id', 'site', 'site_name', 'has_battery',
             'solar_yield', 'battery_charge', 'usable_solar',
             'estimated_saving', 'used_from_battery',
             'sell_to_grid_kwh', 'sell_to_grid_r',
             'grid_consumption', 'total_consumption',
         ]
+        # site_name is no longer required on input: when a site_id is given we copy
+        # the name/battery from the Site (see SolarReportSerializer._prep_site_row).
+        extra_kwargs = {
+            'site_name': {'required': False},
+            'has_battery': {'required': False},
+        }
 
 
 class SolarReportSerializer(serializers.ModelSerializer):
@@ -113,23 +178,59 @@ class SolarReportSerializer(serializers.ModelSerializer):
             for r in qs
         ]
 
+    @staticmethod
+    def _prep_site_row(row, report_client):
+        """Normalise one SiteData payload dict before persisting.
+
+        - If a Site was given (`site`), keep the legacy site_name/has_battery columns
+          in sync with it (so both old and new readers stay consistent during the
+          transition), and verify the Site belongs to the report's client.
+        - If no Site was given, require a site_name (old-style payload).
+        """
+        site = row.get('site')
+        if site is not None:
+            if report_client is not None and site.client_id != report_client.id:
+                raise serializers.ValidationError(
+                    {'sites': f"Site '{site.name}' does not belong to this report's client."}
+                )
+            # Snapshot identity onto the legacy columns.
+            row['site_name'] = site.name
+            row['has_battery'] = site.has_battery
+        else:
+            if not row.get('site_name'):
+                raise serializers.ValidationError(
+                    {'sites': 'Each site row needs either a site_id or a site_name.'}
+                )
+        return row
+
+    @transaction.atomic
     def create(self, validated_data):
         sites_data = validated_data.pop('sites')
+        client = validated_data.get('client')
+        # Validate all rows BEFORE any write, so a bad row can't leave a partial report.
+        for row in sites_data:
+            self._prep_site_row(row, client)
         report = SolarReport.objects.create(**validated_data)
-        for site in sites_data:
-            SiteData.objects.create(report=report, **site)
+        for row in sites_data:
+            SiteData.objects.create(report=report, **row)
         return report
 
+    @transaction.atomic
     def update(self, instance, validated_data):
         sites_data = validated_data.pop('sites', None)
+        if sites_data is not None:
+            # Validate before mutating anything.
+            for row in sites_data:
+                self._prep_site_row(row, validated_data.get('client', instance.client))
+
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         instance.save()
 
         if sites_data is not None:
             instance.sites.all().delete()
-            for site in sites_data:
-                SiteData.objects.create(report=instance, **site)
+            for row in sites_data:
+                SiteData.objects.create(report=instance, **row)
 
         return instance
 

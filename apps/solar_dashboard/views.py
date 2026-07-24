@@ -12,26 +12,19 @@ from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.views import TokenObtainPairView
 
 from apps.core.models import ClientProfile
-from .models import SolarReport, SiteData
+from .models import SolarReport, SiteData, Site
 from .serializers import (
     SolarReportSerializer,
     SolarReportListSerializer,
     ClientUserSerializer,
     CreateClientUserSerializer,
+    SiteSerializer,
 )
 
 
-# Urgent, non-scalable: feature is gated to this client only.
-AGGREGATE_CLIENT_COMPANY_NAME = 'Urban Growth'
-AGGREGATE_SITE_NAMES = [
-    'Paarl – Units 8 & 9',
-    'Paarl* (with battery)',
-    'Stuart Close',
-    'Springfield – Philippi',
-    'Rialto (with battery)',
-    'Izuzu',
-    'Henry Vos',
-]
+# The numeric metrics summed per site across a date range. (The old hardcoded
+# client name + site-name list are gone — the aggregate view now works for any
+# client using their real Site records.)
 AGGREGATE_NUMERIC_FIELDS = [
     'solar_yield', 'battery_charge', 'usable_solar',
     'estimated_saving', 'used_from_battery',
@@ -193,6 +186,90 @@ class CreateClientView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
+class SiteListCreateView(APIView):
+    """Admin-only: list a client's sites, or create one.
+
+    GET  /dashboard/sites/?client_id=<id>[&include_inactive=1]
+    POST /dashboard/sites/   {client_id, name, has_battery}
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if get_role(request.user) != 'admin':
+            return Response({'error': 'Forbidden'}, status=status.HTTP_403_FORBIDDEN)
+
+        qs = Site.objects.select_related('client__client_profile')
+        client_id = request.query_params.get('client_id')
+        if client_id:
+            qs = qs.filter(client_id=client_id)
+        if request.query_params.get('include_inactive') not in ('1', 'true', 'yes'):
+            qs = qs.filter(is_active=True)
+        qs = qs.order_by('order', 'name')
+
+        serializer = SiteSerializer(qs, many=True, context={'request': request})
+        return Response(serializer.data)
+
+    def post(self, request):
+        if get_role(request.user) != 'admin':
+            return Response({'error': 'Forbidden'}, status=status.HTTP_403_FORBIDDEN)
+        serializer = SiteSerializer(data=request.data, context={'request': request})
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class SiteDetailView(APIView):
+    """Admin-only: edit or retire a single site.
+
+    PATCH  /dashboard/sites/<pk>/   (partial update; e.g. rename, toggle is_active)
+    DELETE /dashboard/sites/<pk>/   (soft-retire by default; hard-delete blocked if
+                                     the site has report history)
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get_object(self, pk):
+        try:
+            return Site.objects.select_related('client__client_profile').get(pk=pk)
+        except Site.DoesNotExist:
+            return None
+
+    def patch(self, request, pk):
+        if get_role(request.user) != 'admin':
+            return Response({'error': 'Forbidden'}, status=status.HTTP_403_FORBIDDEN)
+        site = self.get_object(pk)
+        if site is None:
+            return Response({'error': 'Site not found'}, status=status.HTTP_404_NOT_FOUND)
+        serializer = SiteSerializer(site, data=request.data, partial=True,
+                                    context={'request': request})
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def delete(self, request, pk):
+        if get_role(request.user) != 'admin':
+            return Response({'error': 'Forbidden'}, status=status.HTTP_403_FORBIDDEN)
+        site = self.get_object(pk)
+        if site is None:
+            return Response({'error': 'Site not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Protect report history: if any SiteData references this site, refuse a hard
+        # delete and retire it instead (soft-delete).
+        if site.data_rows.exists():
+            site.is_active = False
+            site.save(update_fields=['is_active', 'updated_at'])
+            return Response(
+                {'detail': 'Site has report history; it was retired (is_active=False) '
+                           'instead of deleted.',
+                 'retired': True},
+                status=status.HTTP_200_OK,
+            )
+
+        site.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
 def _parse_date(value):
     try:
         y, m, d = value.split('-')
@@ -201,21 +278,19 @@ def _parse_date(value):
         return None
 
 
-def _is_aggregate_client(client_user):
-    if not client_user:
-        return False
-    try:
-        return client_user.client_profile.company_name == AGGREGATE_CLIENT_COMPANY_NAME
-    except ClientProfile.DoesNotExist:
-        return False
-
-
 class SolarReportAggregateView(APIView):
     """Aggregate per-site values across reports overlapping [from, to] with
     pro-rata clipping plus daily-average extrapolation for uncovered days.
 
     Public (matches detail GET) so shared dashboard links keep working.
-    Hardcoded to the 'Urban Growth' client and their 7 known sites.
+
+    Works for ANY client: the site list comes from that client's real Site records
+    (active sites, UNION any site — active or retired — that has data within the
+    selected range). Sites are matched by site_id, so renaming a site never splits
+    its history. An active site with no data in the range shows as an all-zero row;
+    a retired site with no data in the range is omitted.
+
+    The aggregation math (pro-rata clipping + extrapolation) is unchanged.
     """
     permission_classes = [AllowAny]
 
@@ -235,15 +310,16 @@ class SolarReportAggregateView(APIView):
         except SolarReport.DoesNotExist:
             return Response({'error': 'Report not found'}, status=status.HTTP_404_NOT_FOUND)
 
-        if not _is_aggregate_client(anchor.client):
-            return Response({'error': 'Aggregation not available for this client'}, status=status.HTTP_403_FORBIDDEN)
+        client = anchor.client
+        if client is None:
+            return Response({'error': 'Aggregation requires a client-linked report'},
+                            status=status.HTTP_400_BAD_REQUEST)
 
         from_d = _parse_date(from_str)
         to_d = _parse_date(to_str)
         if not from_d or not to_d or from_d > to_d:
             return Response({'error': 'Invalid date range'}, status=status.HTTP_400_BAD_REQUEST)
 
-        client = anchor.client
         bounds = SolarReport.objects.filter(client=client).aggregate(
             min_start=Min('period_start'),
             max_end=Max('period_end'),
@@ -263,14 +339,14 @@ class SolarReportAggregateView(APIView):
         reports = (
             SolarReport.objects
             .filter(client=client, period_start__lte=to_d, period_end__gte=from_d)
-            .prefetch_related('sites')
+            .prefetch_related('sites__site')
         )
 
-        per_site_totals = {
-            name: {f: Decimal('0') for f in AGGREGATE_NUMERIC_FIELDS}
-            for name in AGGREGATE_SITE_NAMES
-        }
-        per_site_has_battery = {name: False for name in AGGREGATE_SITE_NAMES}
+        # Accumulate totals keyed by site_id (rename-safe). We also remember each
+        # site's Site record so we can output name/battery/order and decide which
+        # sites appear.
+        per_site_totals = {}       # site_id -> {field: Decimal}
+        sites_with_data = {}       # site_id -> Site instance (seen in range)
         covered_days = set()
 
         for report in reports:
@@ -287,27 +363,41 @@ class SolarReportAggregateView(APIView):
             for i in range(overlap_days):
                 covered_days.add(r_start + timedelta(days=i))
 
-            for site in report.sites.all():
-                if site.site_name not in per_site_totals:
-                    continue
-                if site.has_battery:
-                    per_site_has_battery[site.site_name] = True
+            for row in report.sites.all():
+                site = row.site
+                if site is None:
+                    continue  # legacy row not linked to a Site; skip defensively
+                sid = site.id
+                sites_with_data[sid] = site
+                totals = per_site_totals.setdefault(
+                    sid, {f: Decimal('0') for f in AGGREGATE_NUMERIC_FIELDS})
                 for field in AGGREGATE_NUMERIC_FIELDS:
-                    val = getattr(site, field) or Decimal('0')
-                    per_site_totals[site.site_name][field] += val * fraction
+                    val = getattr(row, field) or Decimal('0')
+                    totals[field] += val * fraction
+
+        # The display set: all currently-active sites, plus any site (active or
+        # retired) that had data within the range.
+        display_sites = {s.id: s for s in Site.objects.filter(client=client, is_active=True)}
+        display_sites.update(sites_with_data)  # retired-but-has-data get included
+
+        ordered_sites = sorted(
+            display_sites.values(),
+            key=lambda s: (s.order, s.name),
+        )
 
         total_range_days = (to_d - from_d).days + 1
         covered_count = len(covered_days)
         uncovered_count = total_range_days - covered_count
 
+        empty = {f: Decimal('0') for f in AGGREGATE_NUMERIC_FIELDS}
         sites_out = []
-        for order_idx, name in enumerate(AGGREGATE_SITE_NAMES):
-            totals = per_site_totals[name]
+        for order_idx, site in enumerate(ordered_sites):
+            totals = per_site_totals.get(site.id, empty)
             site_obj = {
-                'id': order_idx,
+                'id': site.id,
                 'order': order_idx,
-                'site_name': name,
-                'has_battery': per_site_has_battery[name],
+                'site_name': site.name,
+                'has_battery': site.has_battery,
             }
             for field in AGGREGATE_NUMERIC_FIELDS:
                 covered_total = totals[field]
@@ -360,8 +450,8 @@ class SolarReportDateRangeView(APIView):
         except SolarReport.DoesNotExist:
             return Response({'error': 'Report not found'}, status=status.HTTP_404_NOT_FOUND)
 
-        if not _is_aggregate_client(anchor.client):
-            return Response({'error': 'Not available for this client'}, status=status.HTTP_403_FORBIDDEN)
+        if anchor.client is None:
+            return Response({'error': 'Report has no client'}, status=status.HTTP_400_BAD_REQUEST)
 
         bounds = SolarReport.objects.filter(client=anchor.client).aggregate(
             min_start=Min('period_start'),

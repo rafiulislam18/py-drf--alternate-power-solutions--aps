@@ -1,5 +1,21 @@
 from django.contrib import admin
-from .models import SolarReport, SiteData
+from .models import SolarReport, SiteData, Site
+
+
+@admin.register(Site)
+class SiteAdmin(admin.ModelAdmin):
+    list_display = ['name', 'get_client_name', 'has_battery', 'is_active', 'order']
+    list_filter = ['is_active', 'has_battery']
+    search_fields = ['name', 'client__username', 'client__client_profile__company_name']
+    autocomplete_fields = ['client']
+    readonly_fields = ['created_at', 'updated_at']
+
+    @admin.display(description='Client')
+    def get_client_name(self, obj):
+        try:
+            return obj.client.client_profile.company_name or obj.client.username
+        except Exception:
+            return obj.client.username
 
 
 class SiteDataInline(admin.TabularInline):
