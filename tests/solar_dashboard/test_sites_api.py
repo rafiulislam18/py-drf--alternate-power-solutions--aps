@@ -131,7 +131,7 @@ class TestSiteAPI:
             client=client_user, report_date='2026-07-01',
             period_start='2026-07-01', period_end='2026-07-31',
         )
-        SiteData.objects.create(report=report, site=s, site_name='Used')
+        SiteData.objects.create(report=report, site=s)
         res = admin_api_client.delete(f'/dashboard/sites/{s.id}/')
         assert res.status_code == 200
         assert res.data.get('retired') is True
@@ -145,7 +145,7 @@ class TestSiteAPI:
             client=client_user, report_date='2026-07-01',
             period_start='2026-07-01', period_end='2026-07-31',
         )
-        SiteData.objects.create(report=report, site=s, site_name='Counted')
+        SiteData.objects.create(report=report, site=s)
         res = admin_api_client.get(
             f'/dashboard/sites/?client_id={client_user.id}')
         assert res.data[0]['data_row_count'] == 1

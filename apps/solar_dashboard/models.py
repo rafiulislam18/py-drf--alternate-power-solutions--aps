@@ -71,19 +71,15 @@ class Site(models.Model):
 
 class SiteData(models.Model):
     report = models.ForeignKey(SolarReport, related_name='sites', on_delete=models.CASCADE)
-    # New identity link. Nullable during the transition (backfilled by data migration
-    # 0004); the old site_name/has_battery columns below are kept until the cleanup
-    # migration so nothing breaks mid-rollout.
+    # Identity of record: every SiteData belongs to a reusable Site. (The legacy
+    # site_name/has_battery columns were dropped in migration 0005 — identity now
+    # lives on the Site.)
     site = models.ForeignKey(
         Site,
         related_name='data_rows',
         on_delete=models.PROTECT,
-        null=True,
-        blank=True,
     )
     order = models.PositiveSmallIntegerField(default=0)
-    site_name = models.CharField(max_length=200)
-    has_battery = models.BooleanField(default=False)
     solar_yield = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     battery_charge = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     usable_solar = models.DecimalField(max_digits=12, decimal_places=2, default=0)
@@ -98,4 +94,5 @@ class SiteData(models.Model):
         ordering = ['order']
 
     def __str__(self):
-        return f"{self.site_name} ({self.report})"
+        name = self.site.name if self.site_id else '(no site)'
+        return f"{name} ({self.report})"

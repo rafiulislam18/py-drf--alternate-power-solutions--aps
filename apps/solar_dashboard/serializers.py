@@ -117,33 +117,48 @@ class NestedSiteSerializer(serializers.ModelSerializer):
 
 
 class SiteDataSerializer(serializers.ModelSerializer):
-    # NEW: link to a reusable Site by id (write). Optional during the transition —
-    # old payloads that send only site_name/has_battery still work.
+    # Link to a reusable Site by id (write). Required now that identity lives on Site.
     site_id = serializers.PrimaryKeyRelatedField(
         queryset=Site.objects.all(),
         source='site',
         write_only=True,
-        required=False,
-        allow_null=True,
     )
     # Read-only nested identity so the frontend gets the Site's name/battery/active.
     site = NestedSiteSerializer(read_only=True)
 
+    NUMERIC_FIELDS = [
+        'solar_yield', 'battery_charge', 'usable_solar',
+        'estimated_saving', 'used_from_battery',
+        'sell_to_grid_kwh', 'sell_to_grid_r',
+        'grid_consumption', 'total_consumption',
+    ]
+
     class Meta:
         model = SiteData
         fields = [
-            'id', 'order', 'site_id', 'site', 'site_name', 'has_battery',
+            'id', 'order', 'site_id', 'site',
             'solar_yield', 'battery_charge', 'usable_solar',
             'estimated_saving', 'used_from_battery',
             'sell_to_grid_kwh', 'sell_to_grid_r',
             'grid_consumption', 'total_consumption',
         ]
-        # site_name is no longer required on input: when a site_id is given we copy
-        # the name/battery from the Site (see SolarReportSerializer._prep_site_row).
-        extra_kwargs = {
-            'site_name': {'required': False},
-            'has_battery': {'required': False},
-        }
+
+    def to_representation(self, instance):
+        """Expose site_name / has_battery (sourced from the linked Site) for the
+        frontend, which reads these convenience keys. Identity of record is the Site.
+
+        `in_report=True` marks a real saved row (vs. a padded all-zero site that the
+        report serializer adds for active sites with no data this period).
+        """
+        data = super().to_representation(instance)
+        if instance.site_id and instance.site:
+            data['site_name'] = instance.site.name
+            data['has_battery'] = instance.site.has_battery
+        else:
+            data['site_name'] = ''
+            data['has_battery'] = False
+        data['in_report'] = True
+        return data
 
 
 class SolarReportSerializer(serializers.ModelSerializer):
@@ -178,29 +193,57 @@ class SolarReportSerializer(serializers.ModelSerializer):
             for r in qs
         ]
 
+    def to_representation(self, instance):
+        """Pad the read `sites` list to the full fleet for this client.
+
+        The exact-period view should list the same sites as the range views: every
+        active site, plus any inactive site that has data in this report. Sites with
+        no row in this report appear as all-zero rows with in_report=False; real rows
+        keep their data with in_report=True. Padded rows are display-only (the edit
+        form ticks the checkbox from in_report, and writes send only real rows).
+        """
+        data = super().to_representation(instance)
+        if instance.client_id is None:
+            return data  # unassigned report: just its own rows
+
+        real_site_ids = {row.site_id for row in instance.sites.all() if row.site_id}
+        active_sites = Site.objects.filter(client_id=instance.client_id, is_active=True)
+        padding = []
+        for site in active_sites:
+            if site.id in real_site_ids:
+                continue  # already present as a real row
+            pad = {
+                'id': None,
+                'order': 0,
+                'site': NestedSiteSerializer(site).data,
+                'site_name': site.name,
+                'has_battery': site.has_battery,
+                'in_report': False,
+            }
+            for f in SiteDataSerializer.NUMERIC_FIELDS:
+                pad[f] = '0.00'
+            padding.append(pad)
+
+        # Real rows first (keep their order), then padded active sites by name.
+        padding.sort(key=lambda p: (p['site']['order'], p['site_name']))
+        data['sites'] = list(data['sites']) + padding
+        return data
+
     @staticmethod
     def _prep_site_row(row, report_client):
-        """Normalise one SiteData payload dict before persisting.
+        """Validate one SiteData payload dict before persisting.
 
-        - If a Site was given (`site`), keep the legacy site_name/has_battery columns
-          in sync with it (so both old and new readers stay consistent during the
-          transition), and verify the Site belongs to the report's client.
-        - If no Site was given, require a site_name (old-style payload).
+        Each row must reference a Site (site_id) that belongs to the report's client.
         """
         site = row.get('site')
-        if site is not None:
-            if report_client is not None and site.client_id != report_client.id:
-                raise serializers.ValidationError(
-                    {'sites': f"Site '{site.name}' does not belong to this report's client."}
-                )
-            # Snapshot identity onto the legacy columns.
-            row['site_name'] = site.name
-            row['has_battery'] = site.has_battery
-        else:
-            if not row.get('site_name'):
-                raise serializers.ValidationError(
-                    {'sites': 'Each site row needs either a site_id or a site_name.'}
-                )
+        if site is None:
+            raise serializers.ValidationError(
+                {'sites': 'Each site row needs a site_id.'}
+            )
+        if report_client is not None and site.client_id != report_client.id:
+            raise serializers.ValidationError(
+                {'sites': f"Site '{site.name}' does not belong to this report's client."}
+            )
         return row
 
     @transaction.atomic

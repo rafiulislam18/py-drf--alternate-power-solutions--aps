@@ -37,9 +37,7 @@ def _report(client, start, end):
 
 
 def _row(report, site, **metrics):
-    return SiteData.objects.create(
-        report=report, site=site, site_name=site.name,
-        has_battery=site.has_battery, **metrics)
+    return SiteData.objects.create(report=report, site=site, **metrics)
 
 
 def _agg(api_client, report, frm, to):

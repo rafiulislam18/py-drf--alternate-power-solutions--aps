@@ -21,8 +21,9 @@ class SiteAdmin(admin.ModelAdmin):
 class SiteDataInline(admin.TabularInline):
     model = SiteData
     extra = 0
+    autocomplete_fields = ['site']
     fields = [
-        'order', 'site_name', 'has_battery',
+        'order', 'site',
         'solar_yield', 'battery_charge', 'usable_solar',
         'estimated_saving', 'used_from_battery',
         'sell_to_grid_kwh', 'sell_to_grid_r',
