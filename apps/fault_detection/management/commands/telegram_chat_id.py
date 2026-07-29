@@ -2,13 +2,17 @@
 Find your Telegram chat ID.
 
 Steps:
-  1. Create a bot via @BotFather and put the token in TELEGRAM_BOT_TOKEN (.env).
-  2. Open a chat with your bot (or add it to a group) and send it any message
-     (e.g. "hello"). For groups, you may need to send a message that mentions
-     the bot, or make it admin.
-  3. Run: python manage.py telegram_chat_id
-     It calls getUpdates and prints the chat IDs it can see. Put the right one
-     in TELEGRAM_CHAT_ID (.env).
+  1. Create a bot via @BotFather and put the token in TELEGRAM_BOT_TOKEN (.env),
+     or TELEGRAM_LOG_BOT_TOKEN for the dedicated logs bot.
+  2. Add the bot to the chat/group and send it any message (e.g. "hello"). For
+     groups, turn OFF the bot's Group Privacy in @BotFather (or make it admin) so
+     it can see the message.
+  3. Run one of:
+       python manage.py telegram_chat_id             # uses TELEGRAM_BOT_TOKEN
+       python manage.py telegram_chat_id --logs       # uses TELEGRAM_LOG_BOT_TOKEN
+       python manage.py telegram_chat_id --token XXX   # any token, no .env needed
+     It calls getUpdates and prints the chat IDs it can see. Put the right one in
+     TELEGRAM_CHAT_ID / TELEGRAM_LOG_CHAT_ID (.env).
 """
 
 import requests
@@ -17,12 +21,32 @@ from django.core.management.base import BaseCommand, CommandError
 
 
 class Command(BaseCommand):
-    help = "Print Telegram chat IDs the bot can currently see (via getUpdates)."
+    help = "Print Telegram chat IDs a bot can currently see (via getUpdates)."
+
+    def add_arguments(self, parser):
+        parser.add_argument(
+            '--token',
+            help="Bot token to query. Overrides settings. Use this to look up a "
+                 "chat for the logs bot without editing .env.",
+        )
+        parser.add_argument(
+            '--logs',
+            action='store_true',
+            help="Use TELEGRAM_LOG_BOT_TOKEN (the dedicated logs bot) instead of "
+                 "TELEGRAM_BOT_TOKEN.",
+        )
 
     def handle(self, *args, **options):
-        token = settings.TELEGRAM_BOT_TOKEN
-        if not token:
-            raise CommandError("TELEGRAM_BOT_TOKEN is not set in your .env.")
+        if options.get('token'):
+            token = options['token']
+        elif options.get('logs'):
+            token = getattr(settings, 'TELEGRAM_LOG_BOT_TOKEN', None)
+            if not token:
+                raise CommandError("TELEGRAM_LOG_BOT_TOKEN is not set in your .env.")
+        else:
+            token = settings.TELEGRAM_BOT_TOKEN
+            if not token:
+                raise CommandError("TELEGRAM_BOT_TOKEN is not set in your .env.")
 
         url = f"https://api.telegram.org/bot{token}/getUpdates"
         try:

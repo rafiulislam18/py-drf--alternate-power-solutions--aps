@@ -325,54 +325,72 @@ LOGGING = {
             'backupCount': 5,  # Keep 5 backup/old-log files
             'formatter': 'verbose',
         },
+        # Forwards WARNING+ records to Telegram (off-thread via Celery). This is
+        # the ONLY thing that filters the level down to WARNING for Telegram —
+        # the loggers below still pass INFO to the file handler. No-op unless
+        # ALERT_TELEGRAM_LOGS_ENABLED is True. Uses the 'verbose' formatter so
+        # tracebacks render in the <pre> block.
+        'telegram': {
+            'level': 'WARNING',
+            'class': 'apps.core.telegram_logging.TelegramLogHandler',
+            'formatter': 'verbose',
+        },
     },
     'loggers': {
         '': {  # Root logger
-            'handlers': ['console', 'file'],
+            'handlers': ['console', 'file', 'telegram'],
             'level': 'WARNING',
             'propagate': True,
         },
         'django': {
-            'handlers': ['console', 'file'],
+            'handlers': ['console', 'file', 'telegram'],
             'level': 'WARNING',
             'propagate': False,
         },
         'apps.blog': {
-            'handlers': ['console', 'file'],
+            'handlers': ['console', 'file', 'telegram'],
             'level': 'WARNING',
             'propagate': False,
         },
         'apps.chatbot': {
-            'handlers': ['console', 'file'],
+            'handlers': ['console', 'file', 'telegram'],
             'level': 'WARNING',
             'propagate': False,
         },
         'apps.quote_request': {
-            'handlers': ['console', 'file'],
+            'handlers': ['console', 'file', 'telegram'],
             'level': 'WARNING',
             'propagate': False,
         },
         'apps.request_solar_cleaning': {
-            'handlers': ['console', 'file'],
+            'handlers': ['console', 'file', 'telegram'],
             'level': 'WARNING',
             'propagate': False,
         },
         'apps.subscription': {
-            'handlers': ['console', 'file'],
+            'handlers': ['console', 'file', 'telegram'],
             'level': 'WARNING',
             'propagate': False,
         },
         'apps.services_and_projects': {
-            'handlers': ['console', 'file'],
+            'handlers': ['console', 'file', 'telegram'],
             'level': 'WARNING',
             'propagate': False,
         },
         'apps.solar_dashboard': {
-            'handlers': ['console', 'file'],
+            'handlers': ['console', 'file', 'telegram'],
             'level': 'WARNING',
             'propagate': False,
         },
         'apps.weight_scale': {
+            'handlers': ['console', 'file', 'telegram'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
+        # The Telegram log handler's OWN diagnostics must never carry the
+        # 'telegram' handler, or a delivery failure would recurse. File/console
+        # only, and no propagation to root (which now has 'telegram').
+        'apps.core.telegram_logging': {
             'handlers': ['console', 'file'],
             'level': 'WARNING',
             'propagate': False,
@@ -521,6 +539,18 @@ ALERT_TELEGRAM_ENABLED = os.getenv('ALERT_TELEGRAM_ENABLED', 'False') == 'True'
 
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
+
+# --- Telegram log streaming (WARNING+) ---
+# Forward WARNING/ERROR/CRITICAL log records to a Telegram chat in real time via
+# the 'telegram' logging handler below. Everything still lands in prod.log too —
+# Telegram is a best-effort extra channel with NO throttling, so if it gets noisy
+# prod.log remains the authoritative record. Reuses TELEGRAM_BOT_TOKEN.
+ALERT_TELEGRAM_LOGS_ENABLED = os.getenv('ALERT_TELEGRAM_LOGS_ENABLED', 'False') == 'True'
+# Dedicated logs bot + chat/group, separate from the fault-alert bot above, so
+# log noise doesn't drown fault-detection alerts. Each falls back to its
+# fault-alert counterpart if unset (see telegram_logging._telegram_log_*).
+TELEGRAM_LOG_BOT_TOKEN = os.getenv('TELEGRAM_LOG_BOT_TOKEN')
+TELEGRAM_LOG_CHAT_ID = os.getenv('TELEGRAM_LOG_CHAT_ID')
 
 
 # ====================== WHATSAPP CHAT IMPORT ======================
