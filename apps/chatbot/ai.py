@@ -1,5 +1,9 @@
+import logging
+
 from django.conf import settings
 import requests
+
+logger = logging.getLogger(__name__)
 
 
 class CompanyChatbot:
@@ -120,15 +124,14 @@ class CompanyChatbot:
                     'response': bot_response
                 }
             else:
-                # logger.error(f"Grok API error: {response.status_code} - {response.text}")
-                print(response.status_code, response.text)
+                logger.error("Grok API error: %s - %s", response.status_code, response.text)
                 return {
                     'success': False,
                     'response': "I'm having trouble connecting right now. Please try again or contact support at info@alter-power.co.za"
                 }
-                
-        except Exception as e:
-            # logger.error(f"Chatbot error: {str(e)}")
+
+        except Exception:
+            logger.exception("Chatbot error while getting response from Grok API")
             return {
                 'success': False,
                 'response': "I encountered an error. Please try again or contact our support team."

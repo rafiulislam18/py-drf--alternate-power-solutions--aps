@@ -79,7 +79,6 @@ class CreatePayFastCheckoutSession(APIView):
             
         except Exception as e:
             logger.error(f"Error creating PayFast checkout session: {str(e)}")
-            print(f"Error creating PayFast checkout session: {str(e)}")
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
     
     def generate_payfast_data(self, name, email, subscription_id):
@@ -150,9 +149,11 @@ def payfast_notify(request):
         # Get POST data
         post_data = request.POST.dict()
         
-        # Log the notification for debugging
-        logger.info(f"PayFast ITN received: {post_data}")
-        print("PayFast ITN received:", post_data)
+        # Log receipt without dumping the full payload (contains payer PII / tokens).
+        logger.info(
+            "PayFast ITN received: m_payment_id=%s status=%s",
+            post_data.get('m_payment_id'), post_data.get('payment_status'),
+        )
         
         ## Verify signature
         # if not verify_payfast_signature(post_data):
@@ -162,8 +163,10 @@ def payfast_notify(request):
         
         # Verify source IP (PayFast security requirement)
         if not verify_payfast_ip(request):
-            logger.error(f"PayFast IP verification failed: {json.dumps(post_data, indent=4)}")
-            print("PayFast IP verification failed:")
+            logger.error(
+                "PayFast IP verification failed (m_payment_id=%s). Full payload emailed to admin.",
+                post_data.get('m_payment_id'),
+            )
 
             # Send email notification
             html_message = f"""
@@ -193,7 +196,6 @@ def payfast_notify(request):
         # Verify amount
         if post_data.get('amount_gross') != '99.00':
             logger.error(f"Amount mismatch: expected 99.00, got {post_data.get('amount_gross')}")
-            print(f"Amount mismatch: expected 99.00, got {post_data.get('amount_gross')}")
 
             return HttpResponse(status=400)
         
@@ -204,7 +206,6 @@ def payfast_notify(request):
         
         if not subscription_id:
             logger.error("No subscription ID in PayFast notification")
-            print("No subscription ID in PayFast notification")
 
             # Send email notification
             html_message = f"""
@@ -236,7 +237,6 @@ def payfast_notify(request):
             subscription = Subscription.objects.get(id=subscription_id)
         except Subscription.DoesNotExist:
             logger.error(f"Subscription {subscription_id} not found")
-            print(f"Subscription {subscription_id} not found")
 
             # Send email notification
             html_message = f"""
@@ -330,25 +330,21 @@ def payfast_notify(request):
             
             # Send welcome/confirmation email here
             logger.info(f"Subscription {subscription_id} activated successfully")
-            print(f"Subscription {subscription_id} activated successfully")
             
         elif payment_status == 'CANCELLED':
             # Subscription cancelled
             subscription.is_active = False
             subscription.save()
             logger.info(f"Subscription {subscription_id} cancelled")
-            print(f"Subscription {subscription_id} cancelled")
             
         elif payment_status == 'FAILED':
             # Payment failed
             logger.warning(f"Payment failed for subscription {subscription_id}")
-            print(f"Payment failed for subscription {subscription_id}")
             
         return HttpResponse(status=200)
         
     except Exception as e:
         logger.error(f"Error processing PayFast ITN: {str(e)}")
-        print(f"Error processing PayFast ITN: {str(e)}")
         return HttpResponse(status=500)
 
 
@@ -397,15 +393,11 @@ def verify_payfast_signature(post_data):
     
     if hasattr(settings, 'PAYFAST_PASSPHRASE') and settings.PAYFAST_PASSPHRASE and settings.PAYFAST_PASSPHRASE != '':
         param_string += f'&passphrase={settings.PAYFAST_PASSPHRASE}'
-        logger.info(f"Passphrase added: {settings.PAYFAST_PASSPHRASE}")
-    
+
     calculated_signature = hashlib.md5(param_string.encode()).hexdigest()
-    logger.info(f"ITN param string: {param_string}")
-    print(f"ITN param string: {param_string}")
-    logger.info(f"Received signature: {received_signature}")
-    print(f"Received signature: {received_signature}")
-    logger.info(f"Calculated signature: {calculated_signature}")
-    print(f"Calculated signature: {calculated_signature}")
+    # NB: never log param_string / passphrase — it contains the shared secret.
+    # Signature comparison at debug level only (off by default; INFO file handler).
+    logger.debug("PayFast signature check: received=%s calculated=%s", received_signature, calculated_signature)
     
     return calculated_signature == received_signature.lower()
 

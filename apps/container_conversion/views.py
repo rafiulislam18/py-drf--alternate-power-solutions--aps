@@ -1,3 +1,5 @@
+import logging
+
 from django.core.mail import EmailMessage
 from django.conf import settings
 from django.utils import timezone
@@ -8,6 +10,8 @@ from rest_framework.views import APIView
 
 from .models import ServiceRequest, ContainerProject
 from .serializers import ServiceRequestSerializer, ContainerProjectSerializer
+
+logger = logging.getLogger(__name__)
 
 
 class ServiceRequestCreateAPIView(APIView):
@@ -219,6 +223,10 @@ class ServiceRequestCreateAPIView(APIView):
                 email.content_subtype = "html"
                 email.send(fail_silently=True)
             except Exception:
+                logger.exception(
+                    "Failed to send container conversion notification email to admin "
+                    "(request_id=%s)", service_request.id
+                )
                 return Response(
                     {
                         "message": "Quote request submitted successfully, but failed to send notification email to admin. Please contact APS directly to confirm your request with request ID.",

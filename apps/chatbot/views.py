@@ -2,11 +2,11 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 import json
+import logging
 from .ai import CompanyChatbot
-# import logging
 
 
-# logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 # Initialize chatbot instance
 chatbot = CompanyChatbot()
@@ -43,8 +43,8 @@ def chat_completions(request):
             'success': False,
             'error': 'Invalid JSON'
         }, status=400)
-    except Exception as e:
-        # logger.error(f"Chat endpoint error: {str(e)}")
+    except Exception:
+        logger.exception("Chat endpoint error")
         return JsonResponse({
             'success': False,
             'error': 'Internal server error'

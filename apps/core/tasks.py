@@ -1,3 +1,4 @@
+import logging
 import os
 import pickle
 import subprocess
@@ -11,6 +12,8 @@ from google.oauth2 import service_account
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
+
+logger = logging.getLogger(__name__)
 
 
 @shared_task(bind=True, max_retries=3)
@@ -56,7 +59,7 @@ def daily_postgres_backup(self):
                     check=True
                 )
 
-            print(f"Backup created: {backup_filename} ({backup_path.stat().st_size / (1024 * 1024):.2f} MB)")
+            logger.info("Backup created: %s (%.2f MB)", backup_filename, backup_path.stat().st_size / (1024 * 1024))
 
             # =============================================
             # 2. Load OAuth2 credentials from token.pickle
@@ -105,7 +108,7 @@ def daily_postgres_backup(self):
                 fields='id'
             ).execute()
 
-            print(f"Uploaded to Google Drive → File ID: {file.get('id')}")
+            logger.info("Uploaded to Google Drive -> File ID: %s", file.get('id'))
 
             # =============================================
             # 4. Retention: keep only the last 3 backups
@@ -129,13 +132,13 @@ def daily_postgres_backup(self):
                 to_delete = files[3:]  # keep the first 3 (newest)
                 for old_file in to_delete:
                     service.files().delete(fileId=old_file['id']).execute()
-                    print(f"Deleted old backup: {old_file['name']}")
-                print(f"Retention applied: kept {len(files) - len(to_delete)}, deleted {len(to_delete)}")
+                    logger.info("Deleted old backup: %s", old_file['name'])
+                logger.info("Retention applied: kept %s, deleted %s", len(files) - len(to_delete), len(to_delete))
             else:
-                print(f"Only {len(files)} backups found — retention not needed yet")
+                logger.info("Only %s backups found - retention not needed yet", len(files))
 
         return f"Backup successful: {backup_filename} (ID: {file.get('id')})"
 
     except Exception as exc:
-        print(f"Backup task failed: {exc}")
+        logger.exception("Backup task failed: %s", exc)
         raise self.retry(exc=exc, countdown=300)  # retry in 5 minutes
