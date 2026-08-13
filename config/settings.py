@@ -140,6 +140,7 @@ INSTALLED_APPS = [
     # Third-party packages
     'corsheaders',
     'rest_framework',
+    'rest_framework_simplejwt.token_blacklist',  # Gas Guard logout blacklists refresh tokens
     # NOTE: Don't create public API Documentation. Create a private custom API Documentation.
     # 'drf_yasg',
 
@@ -158,6 +159,15 @@ INSTALLED_APPS = [
     'apps.whatsapp_import',
     'apps.subscription_sheet',
     'apps.quote_sheet',
+
+    # ── Gas Guard apps (see the "GAS GUARD ONLY" settings block below) ──
+    # Namespaced under apps/gas_guard/ with unique labels (gg_*) so their
+    # subscription/weight_scale apps don't collide with the APS ones above.
+    'apps.gas_guard.users',
+    'apps.gas_guard.weight_scale',
+    'apps.gas_guard.leads',
+    'apps.gas_guard.alerts',
+    'apps.gas_guard.subscription',
 
     # Celery Beat for periodic tasks (at last to avoid circular imports with tasks)
     'django_celery_beat',
@@ -286,6 +296,10 @@ REST_FRAMEWORK = {
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(minutes=120),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    # Gas Guard logout blacklists the refresh token; rotating + blacklisting on
+    # refresh ensures a logged-out session's refresh token can't be reused.
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': True,
 }
 
 
@@ -610,3 +624,61 @@ PAYFAST_RETURN_URL = os.getenv('PAYFAST_RETURN_URL')
 PAYFAST_CANCEL_URL = os.getenv('PAYFAST_CANCEL_URL')
 PAYFAST_NOTIFY_URL = os.getenv('PAYFAST_NOTIFY_URL')  # Must be publicly accessible. PayFast needs to be able to reach this URL to send payment notifications.
 PAYFAST_SOLAR_CLEANING_NOTIFY_URL = os.getenv('PAYFAST_SOLAR_CLEANING_NOTIFY_URL')  # Must be publicly accessible. PayFast needs to be able to reach this URL to send payment notifications.
+
+
+# ============================================================================
+# ============================  GAS GUARD ONLY  ==============================
+# ----------------------------------------------------------------------------
+# Everything below is specific to the Gas Guard app (apps.gas_guard.*), which
+# was merged in from the standalone Gas Guard project. Settings that Gas Guard
+# SHARES with the APS website are intentionally NOT redefined here:
+#   • Telegram logging  (TELEGRAM_LOG_BOT_TOKEN / _CHAT_ID / ALERT_TELEGRAM_LOGS_ENABLED)
+#   • Email SMTP        (EMAIL_HOST / EMAIL_HOST_USER / ...)
+#   • Alert email       (EMAIL_RECIPIENT, ALERT_EMAIL_ENABLED)
+#   • PayFast merchant  (PAYFAST_MERCHANT_ID / _KEY / _PASSPHRASE / _SANDBOX)
+#   • Celery broker/beat, REST_FRAMEWORK, SIMPLE_JWT, TIME_ZONE
+# Gas Guard reuses all of those from the sections above.
+#
+# Gas Guard is NOT the project AUTH_USER_MODEL — it keeps its own separate user
+# table (apps.gas_guard.users.GasGuardUser, label "gg_users") and authenticates
+# its own JWTs via apps.gas_guard.users.authentication.GasGuardJWTAuthentication.
+# So there is deliberately no AUTH_USER_MODEL override here.
+# ----------------------------------------------------------------------------
+
+# ── Gas Guard low-gas alerts ────────────────────────────────────────────────
+# Percentage at/below which a cylinder is considered low and an alert fires.
+# Mirrors LOW_THRESHOLD_PCT in the Gas Guard frontend (data/gas_guard/types.ts).
+GAS_GUARD_LOW_GAS_THRESHOLD_PCT = int(os.getenv('GAS_GUARD_LOW_GAS_THRESHOLD_PCT', '30'))
+
+# ── Gas Guard PayFast (subscription payments) ───────────────────────────────
+# Gas Guard runs its OWN PayFast checkout flow, separate from the APS website's
+# PAYFAST_NOTIFY_URL / PAYFAST_RETURN_URL / PAYFAST_CANCEL_URL above. It needs
+# its own return/cancel/notify (ITN) endpoints so the two flows never collide.
+# Merchant credentials (id/key/passphrase/sandbox) are shared from above.
+GAS_GUARD_FRONTEND_URL = os.getenv('GAS_GUARD_FRONTEND_URL', 'http://localhost:5173')
+GAS_GUARD_BACKEND_URL = os.getenv('GAS_GUARD_BACKEND_URL', 'http://127.0.0.1:8000')
+
+PAYFAST_GAS_GUARD_RETURN_URL = os.getenv(
+    'PAYFAST_GAS_GUARD_RETURN_URL',
+    f'{GAS_GUARD_FRONTEND_URL}/gas-guard/dashboard/settings?payment=success',
+)
+PAYFAST_GAS_GUARD_CANCEL_URL = os.getenv(
+    'PAYFAST_GAS_GUARD_CANCEL_URL',
+    f'{GAS_GUARD_FRONTEND_URL}/gas-guard/dashboard/settings?payment=cancelled',
+)
+# ITN must be publicly reachable by PayFast (won't fire from a local backend).
+PAYFAST_GAS_GUARD_NOTIFY_URL = os.getenv(
+    'PAYFAST_GAS_GUARD_NOTIFY_URL',
+    f'{GAS_GUARD_BACKEND_URL}/api/gas-guard/subscription/payfast-notify/',
+)
+
+# PayFast checkout host (sandbox vs live) — mirrors PAYFAST_SANDBOX above.
+PAYFAST_GAS_GUARD_PAYMENT_URL = (
+    'https://sandbox.payfast.co.za/eng/process'
+    if PAYFAST_SANDBOX
+    else 'https://www.payfast.co.za/eng/process'
+)
+# PayFast REST API host — used to cancel a recurring subscription by token.
+PAYFAST_GAS_GUARD_API_URL = 'https://api.payfast.co.za'
+# ============================  END GAS GUARD  ===============================
+# ============================================================================
