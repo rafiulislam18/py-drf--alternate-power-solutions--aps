@@ -57,8 +57,8 @@ urlpatterns = [
     path('weight-scale/', include('apps.weight_scale.urls')),
 
     # Gas Guard — all its sub-apps live under this single namespaced prefix
-    # (e.g. /api/gas-guard/users/login/). See apps/gas_guard/urls.py.
-    path('api/gas-guard/', include('apps.gas_guard.urls')),
+    # (e.g. /gas-guard/users/login/). See apps/gas_guard/urls.py.
+    path('gas-guard/', include('apps.gas_guard.urls')),
 
     # Config URLs for Swagger API Documentation
     # NOTE: Don't create public API Documentation. Create a private custom API Documentation.
