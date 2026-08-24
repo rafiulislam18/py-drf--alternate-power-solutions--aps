@@ -39,6 +39,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'corsheaders',
     'rest_framework',
+    'rest_framework_simplejwt.token_blacklist',  # Gas Guard logout blacklists refresh tokens
     'apps.blog',
     'apps.chatbot',
     'apps.container_conversion',
@@ -47,12 +48,22 @@ INSTALLED_APPS = [
     'apps.quote_request',
     'apps.request_solar_cleaning',
     'apps.subscription',
+    'apps.subscription_portal',
     'apps.services_and_projects',
     'apps.solar_dashboard',
     'apps.weight_scale',
     'apps.whatsapp_import',
     'apps.subscription_sheet',
     'apps.quote_sheet',
+
+    # Gas Guard apps — required so config.urls (which eagerly wires the
+    # /api/gas-guard/ includes) can be imported during URL resolution; without
+    # them any reverse()/resolve() raises "GasGuardUser ... not in INSTALLED_APPS".
+    'apps.gas_guard.users',
+    'apps.gas_guard.weight_scale',
+    'apps.gas_guard.leads',
+    'apps.gas_guard.alerts',
+    'apps.gas_guard.subscription',
 ]
 
 MIDDLEWARE = [
@@ -141,15 +152,25 @@ REST_FRAMEWORK = {
     ],
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 10,
+    'DEFAULT_THROTTLE_RATES': {
+        'portal_otp_request': '5/30m',
+        'portal_otp_verify': '10/30m',
+    },
     'TEST': {
         'DEFAULT_FORMAT': 'json'
     }
 }
 
-# JWT Settings for testing
+# JWT Settings for testing. NOTE: lifetimes must be real timedeltas — simplejwt
+# raises "Cannot create token with no type or lifetime" when they're None, which
+# breaks every test that mints a token (login, Gas Guard auth, etc.).
+from datetime import timedelta  # noqa: E402
+
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': None,  # No expiry for test tokens
-    'REFRESH_TOKEN_LIFETIME': None,
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=120),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': True,
 }
 
 # Logging - Suppress logs during tests
@@ -188,6 +209,12 @@ CACHES = {
 
 # Email backend for testing (console/dummy)
 EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+# Email addresses several views read from settings when sending notifications.
+# Without them those views raise AttributeError and 500 under tests (the console
+# backend means nothing is actually sent).
+EMAIL_HOST_USER = 'test@example.com'
+DEFAULT_FROM_EMAIL = 'test@example.com'
+EMAIL_RECIPIENT = 'admin@example.com'
 
 # Celery configuration for testing (synchronous)
 CELERY_TASK_ALWAYS_EAGER = True

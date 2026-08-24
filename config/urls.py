@@ -50,6 +50,7 @@ urlpatterns = [
     path('quote-request/', include('apps.quote_request.urls')),
     path('request-solar-cleaning/', include('apps.request_solar_cleaning.urls')),
     path('subscription/', include('apps.subscription.urls')),
+    path('subscription-portal/', include('apps.subscription_portal.urls')),
     path('services-projects/', include('apps.services_and_projects.urls')),
     path('dashboard/', include('apps.solar_dashboard.urls')),
     path('fault-detection/', include('apps.fault_detection.urls')),

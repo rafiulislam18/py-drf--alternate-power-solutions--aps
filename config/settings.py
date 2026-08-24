@@ -153,6 +153,7 @@ INSTALLED_APPS = [
     'apps.quote_request',
     'apps.request_solar_cleaning',
     'apps.subscription',
+    'apps.subscription_portal',
     'apps.services_and_projects',
     'apps.solar_dashboard',
     'apps.weight_scale',
@@ -290,6 +291,13 @@ REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ],
+    # Scoped rates for the public Manage-Subscriptions portal only (applied per
+    # view via its own throttle classes — this does not throttle the rest of the
+    # API). request: 5 per 30 min per email; verify: a tighter guess cap.
+    "DEFAULT_THROTTLE_RATES": {
+        "portal_otp_request": "5/30m",
+        "portal_otp_verify": "10/30m",
+    },
 }
 
 
@@ -384,6 +392,11 @@ LOGGING = {
         'apps.subscription': {
             'handlers': ['console', 'file', 'telegram'],
             'level': 'WARNING',
+            'propagate': False,
+        },
+        'apps.subscription_portal': {
+            'handlers': ['console', 'file', 'telegram'],
+            'level': 'INFO',
             'propagate': False,
         },
         'apps.services_and_projects': {

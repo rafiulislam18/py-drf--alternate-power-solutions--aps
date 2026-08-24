@@ -1,4 +1,4 @@
-from django.contrib.auth.hashers import check_password
+from django.contrib.auth.hashers import check_password, make_password
 from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
 
@@ -6,6 +6,14 @@ from .models import GasGuardUser
 from .tokens import GasGuardRefreshToken
 
 User = GasGuardUser
+
+# A throwaway valid password hash. When login is attempted for an email that
+# doesn't exist, we still run the hasher against THIS (instead of the user's
+# real hash) so the request takes roughly the same time either way — blunting
+# timing attacks that probe which emails are registered. It must be a real hash
+# string: ``check_password(pw, None)`` raises TypeError, which would 500 the
+# request and become a perfect enumeration oracle.
+_DUMMY_PASSWORD_HASH = make_password('timing-attack-mitigation-dummy')
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -115,9 +123,9 @@ class EmailTokenObtainPairSerializer(serializers.Serializer):
         try:
             user = User.objects.get(email__iexact=email)
         except User.DoesNotExist:
-            # Run the hasher anyway to blunt timing attacks that probe which
-            # emails exist.
-            check_password(password, None)
+            # Run the hasher anyway (against a dummy hash) to blunt timing
+            # attacks that probe which emails exist.
+            check_password(password, _DUMMY_PASSWORD_HASH)
             self.fail('no_active_account')
 
         if not user.is_active or not user.check_password(password):
