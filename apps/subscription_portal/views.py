@@ -40,7 +40,7 @@ from rest_framework.response import Response
 from .emails import send_otp_email
 from .models import OTP_MAX_ATTEMPTS, OTP_TTL, PortalOTP
 from .payfast import cancel_payfast_subscription
-from .providers import gather_subscriptions, get_owned_subscription
+from .providers import gather_payments, gather_subscriptions, get_owned_subscription
 from .throttling import OtpRequestThrottle, OtpVerifyThrottle
 from .tokens import PortalTokenError, email_from_auth_header, issue_portal_token
 
@@ -162,6 +162,30 @@ def subscriptions(request):
     subs = gather_subscriptions(email)
     return Response(
         {'email': email, 'subscriptions': [s.as_dict() for s in subs]},
+        status=status.HTTP_200_OK,
+    )
+
+
+@api_view(['GET'])
+# Our own scoped token gates this — bypass DRF's global JWT auth (see above).
+@authentication_classes([])
+@permission_classes([AllowAny])
+def payments(request):
+    """
+    The token-email's confirmed payment history across both apps.
+
+    Read from the immutable Payment audit trail, so it reflects what was
+    actually charged rather than the mutable Subscription counters. The
+    frontend renders this and offers it as a CSV download.
+    """
+    try:
+        email = _authed_email(request)
+    except PortalTokenError as e:
+        return Response({'detail': str(e)}, status=status.HTTP_401_UNAUTHORIZED)
+
+    history = gather_payments(email)
+    return Response(
+        {'email': email, 'payments': [p.as_dict() for p in history]},
         status=status.HTTP_200_OK,
     )
 
