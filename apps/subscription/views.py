@@ -1,5 +1,6 @@
 import hashlib
 import socket
+from decimal import Decimal, InvalidOperation
 import urllib.parse
 from urllib.parse import urlparse as url_parse
 from rest_framework.views import APIView
@@ -13,12 +14,54 @@ from django.views.decorators.csrf import csrf_exempt
 from django.http import HttpResponse, JsonResponse
 from django.conf import settings
 from collections import OrderedDict
-from .models import Client, Subscription
+from .models import Client, Payment, Subscription
 from .serializers import CreateCheckoutSessionSerializer
 import logging
 import json
 
 logger = logging.getLogger(__name__)
+
+
+def _to_decimal(value):
+    """PayFast sends amounts as strings; tolerate missing/garbage values."""
+    if value in (None, ''):
+        return None
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        return None
+
+
+def _record_payment(subscription, post_data):
+    """
+    Write the immutable Payment row for a COMPLETE ITN.
+
+    Returns False if this exact payment was already recorded (PayFast retries
+    its ITNs), so the caller can skip re-applying the subscription updates and
+    avoid double-counting months. A missing pf_payment_id is recorded but not
+    deduplicated, since there is nothing stable to key on.
+    """
+    pf_payment_id = post_data.get('pf_payment_id') or ''
+
+    if pf_payment_id and Payment.objects.filter(pf_payment_id=pf_payment_id).exists():
+        logger.info(f'Duplicate ITN for pf_payment_id={pf_payment_id} - ignored')
+        return False
+
+    Payment.objects.create(
+        client=subscription.client,
+        subscription=subscription,
+        amount_gross=_to_decimal(post_data.get('amount_gross')),
+        amount_fee=_to_decimal(post_data.get('amount_fee')),
+        amount_net=_to_decimal(post_data.get('amount_net')),
+        pf_payment_id=pf_payment_id,
+        m_payment_id=post_data.get('m_payment_id', ''),
+        payfast_token=post_data.get('token'),
+        payment_status='COMPLETE',
+        item_name=post_data.get('item_name', ''),
+        raw_payload=post_data,
+    )
+    return True
+
 
 @method_decorator(csrf_exempt, name='dispatch')
 class CreatePayFastCheckoutSession(APIView):
@@ -265,6 +308,11 @@ def payfast_notify(request):
         
         # Handle payment status
         if payment_status == 'COMPLETE':
+            # Record the payment first. A False return means PayFast is retrying
+            # an ITN we already applied, so the counters below must not run again.
+            if not _record_payment(subscription, post_data):
+                return HttpResponse(status=200)
+
             # Payment successful
             subscription.is_active = True
             subscription.payfast_token = token  # Store token for subscription management

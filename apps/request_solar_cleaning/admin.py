@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Client, Subscription
+from .models import Client, Payment, Subscription
 
 class SubscriptionInline(admin.TabularInline):  # or admin.StackedInline for full form
     model = Subscription
@@ -49,3 +49,27 @@ class SubscriptionAdmin(admin.ModelAdmin):
             'fields': ('created_at', 'updated_at'),
         }),
     )
+
+
+@admin.register(Payment)
+class PaymentAdmin(admin.ModelAdmin):
+    """Read-only view of the immutable PayFast payment audit trail."""
+
+    list_display = ('id', 'client', 'subscription', 'amount_gross', 'payment_status', 'item_name', 'pf_payment_id', 'created_at')
+    search_fields = ('client__name', 'client__email', 'pf_payment_id', 'm_payment_id', 'item_name')
+    list_filter = ('payment_status', 'created_at')
+    ordering = ('-created_at',)
+    list_per_page = 20
+
+    # The audit trail is written only by the PayFast ITN handler.
+    readonly_fields = (
+        'id', 'client', 'subscription', 'amount_gross', 'amount_fee', 'amount_net',
+        'pf_payment_id', 'm_payment_id', 'payfast_token', 'payment_status',
+        'item_name', 'raw_payload', 'created_at',
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
