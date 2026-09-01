@@ -1,3 +1,6 @@
+from decimal import Decimal
+from uuid import uuid4
+
 from django.contrib import admin
 from .models import Client, Payment, Subscription
 
@@ -57,23 +60,114 @@ class SubscriptionAdmin(admin.ModelAdmin):
 
 @admin.register(Payment)
 class PaymentAdmin(admin.ModelAdmin):
-    """Read-only view of the immutable PayFast payment audit trail."""
+    """
+    The PayFast payment audit trail (R99 Inverter & Battery Monitoring).
 
-    list_display = ('id', 'client', 'subscription', 'amount_gross', 'payment_status', 'item_name', 'pf_payment_id', 'created_at')
+    Rows are normally written by the PayFast ITN handler. Manual creation is
+    allowed here so staff can capture a payment taken outside the automated
+    flow — an EFT, a correction, or backfilled history — and have it appear in
+    the subscriber's self-service portal.
+
+    Guard rails: rows already written by the ITN (identifiable by their stored
+    payload) stay read-only, so a real PayFast record can never be edited after
+    the fact. Only manually captured rows remain editable.
+    """
+
+    list_display = (
+        'id', 'client', 'subscription', 'amount_gross', 'payment_status',
+        'item_name', 'pf_payment_id', 'source', 'created_at',
+    )
     search_fields = ('client__name', 'client__email', 'pf_payment_id', 'm_payment_id', 'item_name')
     list_filter = ('payment_status', 'created_at')
+    autocomplete_fields = ('client', 'subscription')
     ordering = ('-created_at',)
     list_per_page = 20
+    date_hierarchy = 'created_at'
 
-    # The audit trail is written only by the PayFast ITN handler.
-    readonly_fields = (
-        'id', 'client', 'subscription', 'amount_gross', 'amount_fee', 'amount_net',
-        'pf_payment_id', 'm_payment_id', 'payfast_token', 'payment_status',
-        'item_name', 'raw_payload', 'created_at',
+    fieldsets = (
+        ('Who', {
+            'fields': ('client', 'subscription'),
+            'description': (
+                'Pick the subscription this payment was taken for. The client '
+                'is filled in automatically from it if left blank.'
+            ),
+        }),
+        ('Amount', {
+            'fields': ('amount_gross', 'amount_fee', 'amount_net'),
+            'description': 'Gross defaults to R99.00 if left blank.',
+        }),
+        ('Payment details', {
+            'fields': ('payment_status', 'item_name', 'pf_payment_id', 'm_payment_id', 'payfast_token'),
+            'description': (
+                'Leave the PayFast reference blank to have one generated for a '
+                'manually captured payment.'
+            ),
+        }),
+        ('Audit', {
+            'fields': ('raw_payload', 'created_at'),
+            'classes': ('collapse',),
+        }),
     )
 
-    def has_add_permission(self, request):
-        return False
+    @admin.display(description='Source')
+    def source(self, obj):
+        """Whether this row came from PayFast or was captured by hand."""
+        return 'Manual' if self._is_manual(obj) else 'PayFast'
+
+    @staticmethod
+    def _is_manual(obj):
+        payload = obj.raw_payload or {}
+        return bool(payload.get('manual_entry')) or not payload
+
+    def get_readonly_fields(self, request, obj=None):
+        # created_at is auto_now_add, so it is never editable.
+        base = ('created_at',)
+        if obj is None:
+            return base
+        # An ITN-written row is a real payment record — freeze it entirely.
+        if not self._is_manual(obj):
+            return base + (
+                'client', 'subscription', 'amount_gross', 'amount_fee', 'amount_net',
+                'pf_payment_id', 'm_payment_id', 'payfast_token', 'payment_status',
+                'item_name', 'raw_payload',
+            )
+        return base
 
     def has_change_permission(self, request, obj=None):
-        return False
+        # Real PayFast records stay immutable; manual ones can be corrected.
+        if obj is not None and not self._is_manual(obj):
+            return False
+        return super().has_change_permission(request, obj)
+
+    def save_model(self, request, obj, form, change):
+        """Fill in the fields staff shouldn't have to type by hand."""
+        if obj.subscription:
+            if not obj.client:
+                obj.client = obj.subscription.client
+            if not obj.m_payment_id:
+                obj.m_payment_id = str(obj.subscription_id)
+
+        if obj.amount_gross is None:
+            obj.amount_gross = Decimal('99.00')
+        if obj.amount_net is None and obj.amount_fee is not None:
+            obj.amount_net = obj.amount_gross - obj.amount_fee
+
+        if not obj.payment_status:
+            obj.payment_status = 'COMPLETE'
+        if not obj.item_name:
+            obj.item_name = 'Monthly Subscription'
+
+        # pf_payment_id is unique and NOT NULL — mint one for manual entries.
+        if not obj.pf_payment_id:
+            obj.pf_payment_id = f'manual-{uuid4().hex[:16]}'
+
+        if not change:
+            payload = obj.raw_payload or {}
+            payload.update({
+                'manual_entry': True,
+                'captured_by': request.user.get_username(),
+                'note': 'Captured in Django admin, not a PayFast notification.',
+            })
+            obj.raw_payload = payload
+
+        super().save_model(request, obj, form, change)
