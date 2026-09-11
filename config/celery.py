@@ -16,6 +16,7 @@ app.autodiscover_tasks([
     'apps.whatsapp_import',
     'apps.subscription_sheet',
     'apps.quote_sheet',
+    'apps.gas_guard.alerts',
     # 'apps.otherapp',    # if you have more
 ])
 
