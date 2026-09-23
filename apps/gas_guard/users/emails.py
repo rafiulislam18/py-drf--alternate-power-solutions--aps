@@ -100,3 +100,102 @@ def _verification_email_html(code, greeting):
   </div>
 </div>
 """
+
+
+def send_password_reset_email(email, code, first_name='', is_change=False):
+    """
+    Email a 6-digit code confirming a password change.
+
+    Used by both password flows — ``is_change`` only shifts the copy between
+    "you asked to reset a forgotten password" and "you asked to change your
+    password", since a signed-in user seeing reset wording would be confusing.
+
+    Returns True if the send succeeded, False otherwise. Raises nothing; the
+    caller decides what a failure means.
+    """
+    sender = settings.EMAIL_HOST_USER
+    if not sender:
+        logger.warning('EMAIL_HOST_USER not set — cannot send password reset email.')
+        return False
+
+    greeting = f'Hi {first_name},' if first_name else 'Hi there,'
+    html_message = _password_reset_email_html(code, greeting, is_change)
+    subject = (
+        'Confirm your password change — Gas Guard'
+        if is_change
+        else 'Reset your password — Gas Guard'
+    )
+    try:
+        message = EmailMessage(
+            subject=subject,
+            body=html_message,
+            from_email=sender,
+            to=[email],
+        )
+        message.content_subtype = 'html'
+        message.send(fail_silently=False)
+        logger.info(f'Password reset code emailed to {email}')
+        return True
+    except Exception as e:
+        logger.error(f'Error sending password reset email to {email}: {e}')
+        return False
+
+
+def _password_reset_email_html(code, greeting, is_change):
+    """Gas Guard-branded password-code email (dark theme: cyan + amber)."""
+    heading = 'Confirm password change' if is_change else 'Reset your password'
+    intro = (
+        'You asked to change your Gas Guard password. Enter the code below to '
+        'confirm the change.'
+        if is_change
+        else 'You asked to reset your Gas Guard password. Enter the code below '
+        'to set your new password.'
+    )
+    return f"""\
+<div style="font-family: Arial, Helvetica, sans-serif; max-width: 560px; margin: 0 auto;
+            background: #0c0e12; border-radius: 16px; overflow: hidden;
+            border: 1px solid #1c2029;">
+  <div style="background: #0c0e12; padding: 28px 28px 20px; text-align: center;
+              border-bottom: 1px solid #1c2029;">
+    <div style="font-size: 22px; font-weight: 800; letter-spacing: -.5px; color: #fff;">
+      Gas <span style="color: #27d3e0;">Guard</span>
+    </div>
+    <div style="margin-top: 6px; font-size: 12px; color: #9aa4b2;
+                text-transform: uppercase; letter-spacing: 1.5px;">
+      {heading}
+    </div>
+  </div>
+
+  <div style="padding: 28px;">
+    <p style="font-size: 15px; color: #e6e9ef; margin: 0 0 14px;">{greeting}</p>
+    <p style="font-size: 14px; color: #9aa4b2; margin: 0 0 22px; line-height: 1.6;">
+      {intro}
+    </p>
+
+    <div style="background: #12151b; border: 1px solid #1c2029;
+                border-left: 4px solid #27d3e0; border-radius: 10px;
+                padding: 22px; text-align: center; margin: 0 0 22px;">
+      <div style="font-family: 'Courier New', monospace; font-size: 34px;
+                  font-weight: 800; letter-spacing: 8px; color: #27d3e0;">{code}</div>
+      <div style="margin-top: 8px; font-size: 12px; color: #9aa4b2;">
+        Enter this code to confirm
+      </div>
+    </div>
+
+    <div style="background: #1a1408; border-left: 4px solid #f0a63a;
+                border-radius: 8px; padding: 14px 16px;">
+      <p style="margin: 0; font-size: 13px; color: #f0a63a;">
+        This code expires in {CODE_TTL_MINUTES} minutes. If you didn't request
+        it, ignore this email — your password has not changed.
+      </p>
+    </div>
+  </div>
+
+  <div style="background: #0a0c10; padding: 16px 28px; text-align: center;
+              border-top: 1px solid #1c2029;">
+    <p style="margin: 0; font-size: 12px; color: #6b7280;">
+      Gas Guard &mdash; smart LPG monitoring, a product of APS
+    </p>
+  </div>
+</div>
+"""

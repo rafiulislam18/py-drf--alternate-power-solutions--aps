@@ -2,6 +2,10 @@ from django.urls import path
 from rest_framework_simplejwt.views import TokenRefreshView
 
 from .views import (
+    ChangePasswordConfirmView,
+    ChangePasswordRequestView,
+    ForgotPasswordConfirmView,
+    ForgotPasswordRequestView,
     LoginView,
     LogoutView,
     MeView,
@@ -29,5 +33,29 @@ urlpatterns = [
         'me/notifications/',
         NotificationPrefsView.as_view(),
         name='user-notification-prefs',
+    ),
+
+    # Password flows — both are two-step and email-verified: request stashes the
+    # new (hashed) password and mails a 6-digit code, confirm applies it.
+    # "forgot" is for signed-out users; "change" is for signed-in ones.
+    path(
+        'forgot-password/',
+        ForgotPasswordRequestView.as_view(),
+        name='user-forgot-password',
+    ),
+    path(
+        'forgot-password/confirm/',
+        ForgotPasswordConfirmView.as_view(),
+        name='user-forgot-password-confirm',
+    ),
+    path(
+        'change-password/',
+        ChangePasswordRequestView.as_view(),
+        name='user-change-password',
+    ),
+    path(
+        'change-password/confirm/',
+        ChangePasswordConfirmView.as_view(),
+        name='user-change-password-confirm',
     ),
 ]

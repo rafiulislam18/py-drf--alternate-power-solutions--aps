@@ -1,16 +1,23 @@
 """
-PayFast subscription checkout + ITN handling.
+PayFast subscription checkout + ITN handling — billed PER SITE.
 
-Two recurring plans, each its own PayFast subscription:
-- Monitoring (R99/mo) — flips the user's tier to SUBSCRIBED, unlocking the
-  subscriber features.
-- Cylinder-swap add-on (R199/mo) — an optional extra, only offered once the
-  monitoring subscription is active. When a cylinder runs empty, APS swaps it.
+A client subscribes each of their sites (ScaleDevices) separately, so every site
+gets its own Subscription row and its own PayFast recurring subscription/token.
+Adding a site is a fresh checkout; removing one is a single cancel; no other
+site's billing is touched.
 
-Flow (per plan):
-1. An authenticated user hits the plan's create-checkout endpoint. We ensure a
-   Subscription row exists and return the PayFast form data + URL; the frontend
-   auto-submits that form to redirect the user to PayFast.
+Two recurring plans per site, each its own PayFast subscription:
+- Monitoring (R99/mo/site) — while ANY site is active the user's tier is
+  SUBSCRIBED, unlocking the account-level subscriber features.
+- Cylinder-swap add-on (R199/mo/site) — an optional extra on a site, only
+  offered while THAT site's monitoring is active. When its cylinder runs empty,
+  APS swaps it.
+
+Flow (per plan, per site):
+1. An authenticated user hits the plan's create-checkout endpoint with a
+   ``deviceId``. We ensure that site's Subscription row exists and return the
+   PayFast form data + URL; the frontend auto-submits that form to redirect the
+   user to PayFast.
 2. PayFast calls ``payfast-notify/`` (ITN) server-to-server. Both plans share
    this one endpoint; we tell them apart by the ``m_payment_id`` prefix
    ("sub-<id>" vs "swap-<id>"). On COMPLETE we record an immutable Payment row
@@ -45,11 +52,14 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.gas_guard.users.authentication import GasGuardJWTAuthentication
+from apps.gas_guard.weight_scale.models import ScaleDevice
+
 from .models import Payment, Subscription
 
 logger = logging.getLogger(__name__)
 
-# Monthly prices, ZAR. Mirror SUB_PRICE_ZAR / SWAP_PRICE_ZAR on the frontend.
+# Monthly prices PER SITE, ZAR. Mirror SUB_PRICE_ZAR / SWAP_PRICE_ZAR on the
+# frontend. Each subscribed site is billed these amounts independently.
 SUBSCRIPTION_AMOUNT = '99.00'
 SWAP_ADDON_AMOUNT = '199.00'
 
@@ -224,11 +234,13 @@ def cancel_payfast_subscription(token):
 
 class SubscriptionStatusView(APIView):
     """
-    GET: the logged-in user's subscription + add-on state for the UI.
+    GET: the logged-in user's per-site subscription state for the UI.
 
-    Returns both the compact booleans the gating logic relies on and the richer
-    per-plan detail (price, months paid, last payment) the plan-management page
-    renders. camelCase to match the frontend convention.
+    Billing is per-site, so this returns one entry per site the user owns —
+    including sites with no subscription yet, which is what the dashboard needs
+    to offer a "Subscribe" button. The account-level flags summarise across
+    sites: ``subscribed`` is true while ANY site is active, which mirrors
+    ``user.tier`` and gates the account-wide features.
     """
 
     authentication_classes = [GasGuardJWTAuthentication]
@@ -236,31 +248,63 @@ class SubscriptionStatusView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        subscription = getattr(request.user, 'subscription', None)
-        subscribed = bool(subscription and subscription.is_active)
-        swap_active = bool(subscription and subscription.swap_addon_active)
+        user = request.user
+
+        # Every site the user owns, with its subscription (if any) attached.
+        devices = ScaleDevice.objects.filter(owner=user, is_active=True)
+        subs_by_device = {
+            s.device_id: s
+            for s in Subscription.objects.filter(user=user, device__isnull=False)
+        }
 
         def _iso(dt):
             return dt.isoformat() if dt else None
 
+        sites = []
+        for device in devices:
+            sub = subs_by_device.get(device.id)
+            active = bool(sub and sub.is_active)
+            swap_active = bool(sub and sub.swap_addon_active)
+            sites.append({
+                'deviceId': device.id,
+                'name': device.name or device.device_id or f'Site {device.id}',
+                'location': device.location,
+                'monitoring': {
+                    'active': active,
+                    'priceZar': int(float(SUBSCRIPTION_AMOUNT)),
+                    'monthsPaid': sub.subscription_length if sub else 0,
+                    'lastPaymentDate': _iso(sub.last_payment_date) if sub else None,
+                },
+                'swapAddon': {
+                    'active': swap_active,
+                    'priceZar': int(float(SWAP_ADDON_AMOUNT)),
+                    'monthsPaid': sub.swap_addon_length if sub else 0,
+                    'lastPaymentDate': _iso(sub.swap_addon_last_payment_date) if sub else None,
+                    # The add-on needs THIS site's monitoring to be active.
+                    'available': active,
+                },
+            })
+
+        active_sites = [s for s in sites if s['monitoring']['active']]
+        swap_sites = [s for s in sites if s['swapAddon']['active']]
+        monthly_total = (
+            len(active_sites) * int(float(SUBSCRIPTION_AMOUNT))
+            + len(swap_sites) * int(float(SWAP_ADDON_AMOUNT))
+        )
+
         return Response({
-            # Compact flags (used across the app for feature gating).
-            'subscribed': subscribed,
-            'swapAddonActive': swap_active,
-            # Per-plan detail for the management page.
-            'monitoring': {
-                'active': subscribed,
-                'priceZar': int(float(SUBSCRIPTION_AMOUNT)),
-                'monthsPaid': subscription.subscription_length if subscription else 0,
-                'lastPaymentDate': _iso(subscription.last_payment_date) if subscription else None,
-            },
-            'swapAddon': {
-                'active': swap_active,
-                'priceZar': int(float(SWAP_ADDON_AMOUNT)),
-                'monthsPaid': subscription.swap_addon_length if subscription else 0,
-                'lastPaymentDate': _iso(subscription.swap_addon_last_payment_date) if subscription else None,
-                # The add-on can only be purchased while monitoring is active.
-                'available': subscribed,
+            # Account-level flags — true while ANY site is subscribed.
+            'subscribed': bool(active_sites),
+            'swapAddonActive': bool(swap_sites),
+            # Per-site detail: the dashboard renders a row per site.
+            'sites': sites,
+            'summary': {
+                'totalSites': len(sites),
+                'subscribedSites': len(active_sites),
+                'swapAddonSites': len(swap_sites),
+                'monthlyTotalZar': monthly_total,
+                'pricePerSiteZar': int(float(SUBSCRIPTION_AMOUNT)),
+                'swapPricePerSiteZar': int(float(SWAP_ADDON_AMOUNT)),
             },
         })
 
@@ -305,9 +349,36 @@ class PaymentHistoryView(APIView):
         })
 
 
+def _get_owned_device(user, device_id):
+    """
+    Resolve a ``deviceId`` from the request to a site this user owns.
+
+    Returns (device, error_response). Sites are created by APS, not clients, so
+    a user may only ever act on a site already assigned to them.
+    """
+    if device_id in (None, ''):
+        return None, Response(
+            {'detail': 'deviceId is required — tell us which site to subscribe.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    try:
+        device = ScaleDevice.objects.get(id=int(device_id), owner=user, is_active=True)
+    except (ScaleDevice.DoesNotExist, TypeError, ValueError):
+        return None, Response(
+            {'detail': 'Site not found.'},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+    return device, None
+
+
 @method_decorator(csrf_exempt, name='dispatch')
 class CreatePayFastCheckoutSession(APIView):
-    """POST: start a PayFast checkout for the R99 monitoring subscription."""
+    """
+    POST: start a PayFast checkout for ONE site's R99 monitoring subscription.
+
+    Body: ``{"deviceId": <id>}``. Each site is billed separately, so this can be
+    called once per site; existing subscriptions on other sites are untouched.
+    """
 
     authentication_classes = [GasGuardJWTAuthentication]
 
@@ -315,21 +386,29 @@ class CreatePayFastCheckoutSession(APIView):
 
     def post(self, request):
         user = request.user
-        if user.tier == user.Tier.SUBSCRIBED:
-            return Response(
-                {'detail': 'You already have an active subscription.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        device, error = _get_owned_device(user, request.data.get('deviceId'))
+        if error:
+            return error
 
         try:
-            # One subscription row per user; reuse it so m_payment_id is stable.
-            subscription, _ = Subscription.objects.get_or_create(user=user)
+            # One row per site; reuse it so m_payment_id stays stable for the
+            # site even if it was previously cancelled and is being re-subscribed.
+            subscription, _ = Subscription.objects.get_or_create(
+                user=user, device=device,
+            )
+            if subscription.is_active:
+                return Response(
+                    {'detail': f'{device.name or "This site"} is already subscribed.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            site_label = device.name or device.device_id or f'Site {device.id}'
             data = _build_payfast_data(
                 user,
                 m_payment_id=f'{MONITORING_PREFIX}{subscription.id}',
                 amount=SUBSCRIPTION_AMOUNT,
-                item_name='Gas Guard Subscription',
-                item_description='Gas Guard monthly subscription',
+                item_name=f'Gas Guard — {site_label}'[:100],
+                item_description=f'Gas Guard monthly monitoring for {site_label}'[:255],
             )
             return Response({
                 'url': settings.PAYFAST_GAS_GUARD_PAYMENT_URL,
@@ -344,11 +423,11 @@ class CreatePayFastCheckoutSession(APIView):
 @method_decorator(csrf_exempt, name='dispatch')
 class CreateSwapAddonCheckoutSession(APIView):
     """
-    POST: start a PayFast checkout for the R199 cylinder-swap add-on.
+    POST: start a PayFast checkout for ONE site's R199 cylinder-swap add-on.
 
-    Only available once the R99 monitoring subscription is active — you need
-    monitoring to know when a cylinder is empty. Refuses if the add-on is
-    already active.
+    Body: ``{"deviceId": <id>}``. Only available while that site's monitoring
+    subscription is active — you need monitoring to know when its cylinder is
+    empty. A client can take the add-on on some sites and not others.
     """
 
     authentication_classes = [GasGuardJWTAuthentication]
@@ -357,23 +436,23 @@ class CreateSwapAddonCheckoutSession(APIView):
 
     def post(self, request):
         user = request.user
+        device, error = _get_owned_device(user, request.data.get('deviceId'))
+        if error:
+            return error
 
-        # Gate: the monitoring subscription must be active first.
-        if user.tier != user.Tier.SUBSCRIBED:
-            return Response(
-                {'detail': 'The cylinder-swap add-on requires an active Gas Guard subscription.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        site_label = device.name or device.device_id or f'Site {device.id}'
+        subscription = Subscription.objects.filter(user=user, device=device).first()
 
-        subscription = getattr(user, 'subscription', None)
+        # Gate: THIS site's monitoring must be active first.
         if subscription is None or not subscription.is_active:
             return Response(
-                {'detail': 'The cylinder-swap add-on requires an active Gas Guard subscription.'},
+                {'detail': f'The cylinder-swap add-on requires an active '
+                           f'subscription on {site_label}.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         if subscription.swap_addon_active:
             return Response(
-                {'detail': 'You already have the cylinder-swap add-on.'},
+                {'detail': f'{site_label} already has the cylinder-swap add-on.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -382,8 +461,8 @@ class CreateSwapAddonCheckoutSession(APIView):
                 user,
                 m_payment_id=f'{SWAP_PREFIX}{subscription.id}',
                 amount=SWAP_ADDON_AMOUNT,
-                item_name='Gas Guard Cylinder Swap Add-on',
-                item_description='Monthly cylinder-swap service — empty cylinders replaced',
+                item_name=f'Gas Guard Cylinder Swap — {site_label}'[:100],
+                item_description=f'Monthly cylinder-swap service for {site_label}'[:255],
             )
             return Response({
                 'url': settings.PAYFAST_GAS_GUARD_PAYMENT_URL,
@@ -398,13 +477,12 @@ class CreateSwapAddonCheckoutSession(APIView):
 @method_decorator(csrf_exempt, name='dispatch')
 class CancelSubscriptionView(APIView):
     """
-    POST: cancel the R99 monitoring subscription.
+    POST: cancel ONE site's R99 monitoring subscription.
 
-    Cancels the recurring billing at PayFast (by token), deactivates the
-    subscription, and drops the user back to the DEVICE tier — which also
-    removes access to the subscriber features. Because the cylinder-swap add-on
-    depends on an active monitoring subscription, cancelling monitoring also
-    cancels the add-on (you can't keep swaps running without monitoring).
+    Body: ``{"deviceId": <id>}``. Cancels that site's recurring billing at
+    PayFast, deactivates its row, and — because the cylinder-swap add-on depends
+    on monitoring — cancels that site's add-on too. Other sites are untouched.
+    The account tier drops to DEVICE only once no site is left active.
     """
 
     authentication_classes = [GasGuardJWTAuthentication]
@@ -413,10 +491,15 @@ class CancelSubscriptionView(APIView):
 
     def post(self, request):
         user = request.user
-        subscription = getattr(user, 'subscription', None)
+        device, error = _get_owned_device(user, request.data.get('deviceId'))
+        if error:
+            return error
+
+        site_label = device.name or device.device_id or f'Site {device.id}'
+        subscription = Subscription.objects.filter(user=user, device=device).first()
         if subscription is None or not subscription.is_active:
             return Response(
-                {'detail': "You don't have an active subscription to cancel."},
+                {'detail': f"{site_label} doesn't have an active subscription to cancel."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -430,23 +513,27 @@ class CancelSubscriptionView(APIView):
             )
 
         with transaction.atomic():
-            # Cascade: no monitoring → no add-on. Cancel the add-on's billing too.
+            # Cascade: no monitoring on this site → no add-on on this site.
             if subscription.swap_addon_active:
                 cancel_payfast_subscription(subscription.swap_addon_token)
                 subscription.swap_addon_active = False
             subscription.is_active = False
             subscription.save()
-            if user.tier != user.Tier.DEVICE:
-                user.tier = user.Tier.DEVICE
-                user.save(update_fields=['tier'])
+            # Account tier follows the remaining sites, not this one.
+            subscription.sync_user_tier()
 
-        logger.info(f'Monitoring subscription cancelled by user {user.email}')
-        return Response({'detail': 'Your subscription has been cancelled.'})
+        logger.info(f'Monitoring cancelled for {site_label} by user {user.email}')
+        return Response({'detail': f'The subscription for {site_label} has been cancelled.'})
 
 
 @method_decorator(csrf_exempt, name='dispatch')
 class CancelSwapAddonView(APIView):
-    """POST: cancel just the R199 cylinder-swap add-on, leaving monitoring active."""
+    """
+    POST: cancel just ONE site's R199 cylinder-swap add-on.
+
+    Body: ``{"deviceId": <id>}``. Leaves that site's monitoring — and every
+    other site — running.
+    """
 
     authentication_classes = [GasGuardJWTAuthentication]
 
@@ -454,10 +541,15 @@ class CancelSwapAddonView(APIView):
 
     def post(self, request):
         user = request.user
-        subscription = getattr(user, 'subscription', None)
+        device, error = _get_owned_device(user, request.data.get('deviceId'))
+        if error:
+            return error
+
+        site_label = device.name or device.device_id or f'Site {device.id}'
+        subscription = Subscription.objects.filter(user=user, device=device).first()
         if subscription is None or not subscription.swap_addon_active:
             return Response(
-                {'detail': "You don't have the cylinder-swap add-on to cancel."},
+                {'detail': f"{site_label} doesn't have the cylinder-swap add-on to cancel."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -470,8 +562,10 @@ class CancelSwapAddonView(APIView):
 
         subscription.swap_addon_active = False
         subscription.save(update_fields=['swap_addon_active', 'updated_at'])
-        logger.info(f'Cylinder-swap add-on cancelled by user {user.email}')
-        return Response({'detail': 'The cylinder-swap add-on has been cancelled.'})
+        logger.info(f'Cylinder-swap add-on cancelled for {site_label} by {user.email}')
+        return Response({
+            'detail': f'The cylinder-swap add-on for {site_label} has been cancelled.',
+        })
 
 
 @csrf_exempt
@@ -581,11 +675,10 @@ def _handle_complete_payment(plan, subscription, post_data):
         subscription.last_payment_date = now
         subscription.subscription_length += 1
         subscription.save()
-        # Unlock the subscriber tier.
-        if user.tier != user.Tier.SUBSCRIBED:
-            user.tier = user.Tier.SUBSCRIBED
-            user.save(update_fields=['tier'])
-        logger.info(f'Monitoring subscription activated for {user.email}')
+        # Account tier follows the whole portfolio, not just this site.
+        subscription.sync_user_tier()
+        site = subscription.device.name if subscription.device else 'unknown site'
+        logger.info(f'Monitoring activated for {site} ({user.email})')
 
     _email_admin_new_payment(subscription, plan, post_data.get('amount_gross'))
 
@@ -599,7 +692,9 @@ def _handle_cancelled_payment(plan, subscription):
     else:
         subscription.is_active = False
         subscription.save(update_fields=['is_active', 'updated_at'])
-        logger.info(f'Monitoring subscription cancelled for subscription {subscription.id}')
+        # Tier drops only once no other site is still active.
+        subscription.sync_user_tier()
+        logger.info(f'Monitoring cancelled for subscription {subscription.id}')
 
 
 @csrf_exempt
@@ -628,6 +723,10 @@ def _email_admin_new_payment(subscription, plan, amount_gross):
     name = f'{user.first_name} {user.last_name}'.strip() or user.email
     is_swap = plan == Payment.Plan.CYLINDER_SWAP
     plan_label = 'Cylinder Swap Add-on' if is_swap else 'Monitoring Subscription'
+    site_label = (
+        subscription.device.name or subscription.device.device_id
+        if subscription.device else 'Unknown site'
+    )
     months = subscription.swap_addon_length if is_swap else subscription.subscription_length
     amount = amount_gross or (SWAP_ADDON_AMOUNT if is_swap else SUBSCRIPTION_AMOUNT)
 
@@ -644,6 +743,8 @@ def _email_admin_new_payment(subscription, plan, amount_gross):
               <td style="padding: 6px 0;"><strong>{name}</strong></td></tr>
           <tr><td style="padding: 6px 0; color: #6b7280;">Email</td>
               <td style="padding: 6px 0;">{user.email}</td></tr>
+          <tr><td style="padding: 6px 0; color: #6b7280;">Site</td>
+              <td style="padding: 6px 0;"><strong>{site_label}</strong></td></tr>
           <tr><td style="padding: 6px 0; color: #6b7280;">Plan</td>
               <td style="padding: 6px 0;">{plan_label}</td></tr>
           <tr><td style="padding: 6px 0; color: #6b7280;">Amount</td>
@@ -659,7 +760,7 @@ def _email_admin_new_payment(subscription, plan, amount_gross):
     """
     try:
         email = EmailMessage(
-            subject=f'Gas Guard: new {plan_label.lower()} payment from {name}',
+            subject=f'Gas Guard: new {plan_label.lower()} payment from {name} ({site_label})',
             body=html_message,
             from_email=sender,
             to=[recipient],

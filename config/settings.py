@@ -297,6 +297,10 @@ REST_FRAMEWORK = {
     "DEFAULT_THROTTLE_RATES": {
         "portal_otp_request": "5/30m",
         "portal_otp_verify": "10/30m",
+        # Gas Guard email-code endpoints, keyed per email address: sending a
+        # code (register / resend / password flows) vs checking one.
+        "gg_code_send": "5/min",
+        "gg_code_verify": "10/min",
     },
 }
 
@@ -493,6 +497,9 @@ CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = 'Africa/Johannesburg'   # ← Client timezone
 CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'
 
+# NOTE: Stope celery for local dev, when good to have
+# CELERY_TASK_ALWAYS_EAGER = os.getenv('CELERY_EAGER', 'True').strip().strip('\'"').lower() != 'false'
+
 
 # ====================== HOME ASSISTANT / FAULT DETECTION ======================
 # Public base URL of the React frontend (no trailing slash). Used to build the
@@ -626,8 +633,14 @@ CHATBOT_API_URL = os.getenv("CHATBOT_API_URL")
 
 
 # PayFast Configuration
-# PAYFAST_SANDBOX = os.getenv('PAYFAST_SANDBOX', False)  # Set to True in Development/Testing, False in Production
-PAYFAST_SANDBOX = False  # Set to True in Development/Testing, False in Production
+# Sandbox unless the value reads as "False" — so an unset or typo'd var stays in
+# sandbox rather than silently going live. Set PAYFAST_SANDBOX='False' in production.
+_sandbox_raw = os.getenv('PAYFAST_SANDBOX', 'True')  # e.g. "'True'" — .env keeps the quotes
+_sandbox_raw = _sandbox_raw.strip()                   # drop surrounding whitespace
+_sandbox_raw = _sandbox_raw.strip('\'"')              # drop the literal quotes
+_sandbox_raw = _sandbox_raw.lower()                   # "FALSE" and "False" both count
+
+PAYFAST_SANDBOX = _sandbox_raw != 'false'
 PAYFAST_MERCHANT_ID = os.getenv('PAYFAST_MERCHANT_ID')
 PAYFAST_MERCHANT_KEY = os.getenv('PAYFAST_MERCHANT_KEY')
 PAYFAST_PASSPHRASE = os.getenv('PAYFAST_PASSPHRASE')

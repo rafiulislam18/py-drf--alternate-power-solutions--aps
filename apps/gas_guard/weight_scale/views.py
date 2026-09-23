@@ -124,9 +124,32 @@ def _owned_sites(user):
     return qs
 
 
-def _include_estimate(user):
-    """Remaining-days estimates are a subscriber feature."""
-    return user.is_staff or user.tier == user.Tier.SUBSCRIBED
+def _subscribed_device_ids(user):
+    """
+    Ids of the sites this user actually pays to monitor.
+
+    Billing is per-site, so a subscription on one site must not unlock the paid
+    data on another. Staff see everything.
+    """
+    from apps.gas_guard.subscription.models import Subscription
+    return set(
+        Subscription.objects
+        .filter(user=user, is_active=True, device__isnull=False)
+        .values_list('device_id', flat=True)
+    )
+
+
+def _include_estimate(user, device, subscribed_ids=None):
+    """
+    Remaining-days estimates are a per-site subscriber feature.
+
+    Pass ``subscribed_ids`` when checking several sites at once to avoid a query
+    per site.
+    """
+    if user.is_staff:
+        return True
+    ids = _subscribed_device_ids(user) if subscribed_ids is None else subscribed_ids
+    return device.id in ids
 
 
 class SiteListView(APIView):
@@ -137,9 +160,14 @@ class SiteListView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        include_estimate = _include_estimate(request.user)
+        subscribed_ids = _subscribed_device_ids(request.user)
         sites = [
-            site_payload(device, include_estimate=include_estimate)
+            site_payload(
+                device,
+                include_estimate=_include_estimate(
+                    request.user, device, subscribed_ids
+                ),
+            )
             for device in _owned_sites(request.user)
         ]
         logger.debug(f"Site list queried: user={request.user} count={len(sites)}")
@@ -159,7 +187,9 @@ class SiteDetailView(APIView):
         except ScaleDevice.DoesNotExist:
             raise Http404('Site not found.')
         return Response(
-            site_payload(device, include_estimate=_include_estimate(request.user))
+            site_payload(
+                device, include_estimate=_include_estimate(request.user, device)
+            )
         )
 
 
@@ -174,15 +204,16 @@ class SiteConsumptionView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, pk):
-        if not _include_estimate(request.user):
-            return Response(
-                {'detail': 'Consumption history requires a subscription.'},
-                status=status.HTTP_403_FORBIDDEN,
-            )
         try:
             device = _owned_sites(request.user).get(pk=pk)
         except ScaleDevice.DoesNotExist:
             raise Http404('Site not found.')
+        # Gated on THIS site's subscription, not the account's.
+        if not _include_estimate(request.user, device):
+            return Response(
+                {'detail': 'Consumption history requires a subscription for this site.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         return Response(daily_consumption(device, days=_window_days(request)))
 
 
@@ -197,13 +228,16 @@ class FleetConsumptionView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        if not _include_estimate(request.user):
-            return Response(
-                {'detail': 'Consumption history requires a subscription.'},
-                status=status.HTTP_403_FORBIDDEN,
-            )
+        sites = _owned_sites(request.user)
+        if not request.user.is_staff:
+            # Only the sites they pay for contribute to the fleet chart.
+            subscribed_ids = _subscribed_device_ids(request.user)
+            if not subscribed_ids:
+                return Response(
+                    {'detail': 'Consumption history requires a subscription.'},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+            sites = sites.filter(id__in=subscribed_ids)
         return Response(
-            fleet_daily_consumption(
-                _owned_sites(request.user), days=_window_days(request)
-            )
+            fleet_daily_consumption(sites, days=_window_days(request))
         )

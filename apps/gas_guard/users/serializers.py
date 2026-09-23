@@ -137,3 +137,43 @@ class EmailTokenObtainPairSerializer(serializers.Serializer):
             'access': str(refresh.access_token),
             'user': UserSerializer(user).data,
         }
+
+
+class ForgotPasswordRequestSerializer(serializers.Serializer):
+    """
+    Start a password reset from the login screen (signed out).
+
+    Deliberately does NOT check that the email exists — the view always reports
+    success so this endpoint can't be used to enumerate registered accounts.
+    """
+
+    email = serializers.EmailField()
+    new_password = serializers.CharField(
+        write_only=True, required=True, validators=[validate_password]
+    )
+
+    def validate_email(self, value):
+        return value.strip().lower()
+
+
+class ChangePasswordRequestSerializer(serializers.Serializer):
+    """
+    Start a password change for the signed-in user.
+
+    The account comes from the JWT, so no email field: a request can only ever
+    target the caller's own account.
+    """
+
+    new_password = serializers.CharField(
+        write_only=True, required=True, validators=[validate_password]
+    )
+
+
+class PasswordCodeConfirmSerializer(serializers.Serializer):
+    """Confirm a password change with the 6-digit code that was emailed."""
+
+    email = serializers.EmailField()
+    code = serializers.CharField(max_length=6, min_length=6)
+
+    def validate_email(self, value):
+        return value.strip().lower()

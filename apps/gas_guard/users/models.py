@@ -116,3 +116,60 @@ class PendingRegistration(models.Model):
         from django.utils import timezone
 
         return timezone.now() > self.verification_code_expires_at
+
+
+class PasswordResetCode(models.Model):
+    """
+    A pending password change, proven by a 6-digit code emailed to the account.
+
+    Covers both flows, told apart by ``purpose``:
+
+    - ``forgot``  — signed out, started from the login screen.
+    - ``change``  — signed in, started from settings.
+
+    The new password is stored already-hashed and only moved onto the user once
+    the code is confirmed, so a request alone can never change a password. One
+    live row per (email, purpose): requesting again replaces the previous one,
+    which also invalidates the old code.
+    """
+
+    class Purpose(models.TextChoices):
+        FORGOT = 'forgot', 'Forgot password'
+        CHANGE = 'change', 'Change password'
+
+    email = models.EmailField()
+    purpose = models.CharField(
+        max_length=8, choices=Purpose.choices, default=Purpose.FORGOT
+    )
+    # Django password hash (via make_password), never plaintext.
+    new_password = models.CharField(max_length=128)
+    verification_code = models.CharField(max_length=6)
+    verification_code_expires_at = models.DateTimeField()
+    # Wrong-code guesses; the row is burned once this hits MAX_ATTEMPTS so a
+    # code can't be brute-forced within its TTL.
+    attempts = models.PositiveSmallIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    MAX_ATTEMPTS = 5
+
+    class Meta:
+        verbose_name = 'Password Reset Code'
+        verbose_name_plural = 'Password Reset Codes'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['email', 'purpose'], name='uniq_pending_reset_per_email_purpose'
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['email']),
+            models.Index(fields=['verification_code']),
+        ]
+
+    def __str__(self):
+        return f'{self.email} ({self.get_purpose_display().lower()})'
+
+    @property
+    def is_expired(self):
+        from django.utils import timezone
+
+        return timezone.now() > self.verification_code_expires_at

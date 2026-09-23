@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import GasGuardUser, PendingRegistration
+from .models import GasGuardUser, PasswordResetCode, PendingRegistration
 
 
 @admin.register(GasGuardUser)
@@ -39,3 +39,14 @@ class PendingRegistrationAdmin(admin.ModelAdmin):
                     'verification_code_expires_at']
     search_fields = ['email', 'first_name', 'last_name']
     readonly_fields = ['password', 'verification_code', 'created_at']
+
+
+@admin.register(PasswordResetCode)
+class PasswordResetCodeAdmin(admin.ModelAdmin):
+    """Read-only-ish view of password changes awaiting email confirmation."""
+
+    list_display = ['email', 'purpose', 'attempts', 'created_at',
+                    'verification_code_expires_at']
+    list_filter = ['purpose']
+    search_fields = ['email']
+    readonly_fields = ['new_password', 'verification_code', 'attempts', 'created_at']
