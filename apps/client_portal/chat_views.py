@@ -1,10 +1,11 @@
 """
 Ticket chat — one conversation per ticket between the client and APS staff.
 
-No websockets: an open ticket page polls ``GET …/messages/?after=<last id>``
-every few seconds and gets only what's new, plus the ticket's live status (so a
-status change shows up without a reload) and how far the other side has read
-(for the "Seen" mark).
+An open ticket fetches ``GET …/messages/?after=<last id>`` and gets only
+what's new, plus the ticket's live status, how far the other side has read
+(for the "Seen" mark) and whether they're online. It fetches the moment the
+live connection pokes it (consumers.py / realtime.py: a new message, a read,
+a status change, someone coming online), and also polls as a fallback.
 
 - Client: ``/client-portal/tickets/<id>/messages/`` (own tickets only; another
   client's ticket is a 404).
@@ -15,8 +16,8 @@ status change shows up without a reload) and how far the other side has read
 it's actually on screen). ``POST`` {body} adds a message and bumps the ticket's
 "last update".
 
-Nobody is emailed per message: a job every 30 minutes emails each side about
-messages they still haven't read (see digests.py).
+Nobody is emailed per message: a job every 5 minutes emails each side about
+messages they've left unread for 30 minutes (see digests.py).
 """
 
 import logging
@@ -31,7 +32,9 @@ from rest_framework.response import Response
 from apps.core.permissions import IsDashboardAdmin, IsDashboardClient
 from utils.exceptions import custom_exception_handler
 
+from . import presence
 from .models import Ticket, TicketMessage
+from .realtime import ticket_changed
 from .serializers import TicketMessageCreateSerializer, TicketMessageSerializer
 from .throttling import MessageWriteThrottle
 from .views import _small_int
@@ -71,6 +74,9 @@ class _ChatView(generics.GenericAPIView):
                 'technician_name': ticket.technician_name,
                 'updated_at': ticket.updated_at,
             },
+            # The other side: the client (for staff) or the APS team (for the client).
+            'presence': (presence.client_presence(ticket.client) if self.viewer_role == 'staff'
+                         else presence.team_presence()),
         }
 
     def get(self, request, pk):
@@ -79,11 +85,14 @@ class _ChatView(generics.GenericAPIView):
         messages = list(
             ticket.messages.filter(id__gt=after).select_related('author').order_by('-id')[:MAX_MESSAGES]
         )[::-1]
+        if request.query_params.get('read') == '1':
+            presence.touch(request.user)  # looking at the chat right now
         if messages and request.query_params.get('read') == '1':
             field = _READ_FIELD[self.viewer_role]
             newest = messages[-1].pk
             # Only ever moves forward, even if two tabs race.
-            Ticket.objects.filter(pk=ticket.pk, **{f'{field}__lt': newest}).update(**{field: newest})
+            if Ticket.objects.filter(pk=ticket.pk, **{f'{field}__lt': newest}).update(**{field: newest}):
+                ticket_changed(ticket, 'read')  # the sender's "Seen" updates live
         return Response(self._payload(ticket, messages))
 
     def post(self, request, pk):
@@ -99,6 +108,8 @@ class _ChatView(generics.GenericAPIView):
             # The sender has obviously seen their own message; the ticket's
             # "last update" moves so busy conversations rise in the lists.
             Ticket.objects.filter(pk=ticket.pk).update(**{field: message.pk}, updated_at=timezone.now())
+            ticket_changed(ticket, 'message')
+        presence.touch(request.user)
         logger.info(f'{request.user.username} ({self.viewer_role}) wrote on {ticket.reference}')
         ticket.refresh_from_db()
         return Response(

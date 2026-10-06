@@ -19,7 +19,7 @@ from apps.solar_dashboard.models import Site
 
 from .conftest import make_client, make_ticket
 
-LATER = timezone.now() + timedelta(minutes=5)  # "now" for runs: messages are old enough
+LATER = timezone.now() + timedelta(minutes=31)  # "now" for runs: messages have been unread 30+ minutes
 
 
 @pytest.fixture(autouse=True)
@@ -105,9 +105,11 @@ def test_never_emailed_twice_but_new_ones_are(ticket):
     assert 'Second' in mail.outbox[1].body and 'First' not in mail.outbox[1].body
 
 
-def test_fresh_messages_wait_for_the_next_run(ticket):
+def test_messages_wait_30_minutes_unread(ticket):
     say(ticket, 'staff', 'Just now')
     assert run(now=timezone.now())['clients_emailed'] == 0  # younger than MIN_AGE
+    assert run(now=timezone.now() + timedelta(minutes=29))['clients_emailed'] == 0
+    assert digests.MIN_AGE == timedelta(minutes=30)
     assert mail.outbox == []
     assert run()['clients_emailed'] == 1
 
@@ -164,7 +166,7 @@ def test_long_conversation_is_trimmed(ticket):
 
 
 def test_management_command(ticket):
-    say(ticket, 'client', 'Hi', age=timedelta(minutes=5))
+    say(ticket, 'client', 'Hi', age=timedelta(minutes=31))
     call_command('send_chat_digests')
     assert len(mail.outbox) == 1
 
@@ -180,3 +182,12 @@ def test_schedule_migration_targets_the_task_every_30_minutes():
     import inspect
     src = inspect.getsource(mig.create_schedule)
     assert "minute='0,30'" in src and "hour='*'" in src
+
+
+def test_schedule_now_checks_every_5_minutes():
+    import importlib
+    import inspect
+
+    mig = importlib.import_module('apps.client_portal.migrations.0014_chat_digest_every_5_min')
+    assert mig.TASK_PATH == 'apps.client_portal.tasks.send_ticket_chat_digests'
+    assert "'*/5'" in inspect.getsource(mig.every_5)

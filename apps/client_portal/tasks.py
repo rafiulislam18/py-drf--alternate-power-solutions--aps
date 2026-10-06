@@ -8,7 +8,7 @@ from .digests import send_chat_digests
 
 @shared_task
 def send_ticket_chat_digests():
-    """Email clients and the team about chat messages they haven't read."""
+    """Email clients and the team about chat messages left unread for 30 minutes."""
     result = send_chat_digests()
     if result['skipped']:
         return 'skipped: another run in progress'

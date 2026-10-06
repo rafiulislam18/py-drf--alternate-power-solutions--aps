@@ -24,6 +24,7 @@ from apps.core.permissions import IsDashboardAdmin
 from utils.exceptions import custom_exception_handler
 
 from .emails import send_status_update
+from .realtime import ticket_changed
 from django.db.models import F
 
 from .models import Ticket, TicketMessage
@@ -95,6 +96,7 @@ class StaffTicketDetailView(_StaffView, generics.RetrieveUpdateAPIView):
         serializer.is_valid(raise_exception=True)
         notify = serializer.validated_data.pop('notify_client', True)
         serializer.save()
+        ticket_changed(ticket, 'status')
 
         emailed = False
         if ticket.status != old_status:

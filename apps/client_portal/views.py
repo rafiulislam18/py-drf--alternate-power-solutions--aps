@@ -42,6 +42,7 @@ from utils.exceptions import custom_exception_handler
 
 from .emails import notify_team_new_ticket, ping_telegram_emergency, send_ticket_confirmation
 from .models import Ticket, TicketAttachment, TicketMessage
+from .realtime import ticket_changed
 from .serializers import (
     ClientTicketDetailSerializer,
     PortalSiteSerializer,
@@ -352,6 +353,7 @@ class TicketListCreateView(_ClientView, generics.ListCreateAPIView):
 
             if emergency:
                 transaction.on_commit(lambda: _notify_new_ticket(ticket.pk))
+            ticket_changed(ticket, 'new')  # staff lists show it straight away
 
         ticket = self.get_queryset().get(pk=ticket.pk)
         logger.info(f'{client.username} raised {ticket.reference} ({ticket.urgency})')

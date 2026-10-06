@@ -175,3 +175,25 @@ class TicketMessage(models.Model):
 
     def __str__(self):
         return f'{self.ticket.reference} — {self.get_author_role_display()} — {self.body[:40]}'
+
+
+class ChatPresence(models.Model):
+    """Whether someone has the dashboard open right now, and when they last did.
+
+    ``connections`` counts their open live connections (tabs); ``last_seen``
+    moves on connect, every heartbeat (~25 s) and on disconnect. Someone is
+    online while they have a connection AND a recent heartbeat, so a server
+    restart can't leave anyone stuck "online". See ``presence.py``.
+    """
+
+    class Side(models.TextChoices):
+        CLIENT = 'client', 'Client'
+        STAFF = 'staff', 'APS staff'
+
+    user = models.OneToOneField(User, on_delete=models.CASCADE, primary_key=True, related_name='chat_presence')
+    side = models.CharField(max_length=6, choices=Side.choices, db_index=True)
+    connections = models.PositiveIntegerField(default=0)
+    last_seen = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f'{self.user} ({self.side})'

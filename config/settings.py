@@ -129,6 +129,8 @@ CORS_ALLOW_CREDENTIALS = True
 # Application definition
 
 INSTALLED_APPS = [
+    # Daphne first: `runserver` then serves the dashboard's WebSocket too.
+    'daphne',
     'jazzmin',  # Jazzmin should be at the top to override default admin templates
     'django.contrib.admin',
     'django.contrib.auth',
@@ -215,6 +217,9 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'config.wsgi.application'
+# The dashboard's live ticket chat (/ws/dashboard/) — served by Daphne in
+# production, next to gunicorn (see apps/client_portal/consumers.py).
+ASGI_APPLICATION = 'config.asgi.application'
 
 
 # Database
@@ -520,6 +525,22 @@ CACHES = {
         {'BACKEND': 'django.core.cache.backends.redis.RedisCache', 'LOCATION': CACHE_REDIS_URL}
         if CACHE_REDIS_URL
         else {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'}
+    )
+}
+
+
+# ====================== CHANNELS (live ticket chat) ======================
+# Gunicorn (where messages are posted) and Daphne (which holds the WebSockets)
+# are separate processes, so in production they talk through Redis. Locally,
+# `runserver` is one process and the in-memory layer is enough.
+CHANNELS_REDIS_URL = os.getenv('CHANNELS_REDIS_URL', '').strip() or (
+    '' if DEBUG else 'redis://localhost:6379/2'
+)
+CHANNEL_LAYERS = {
+    'default': (
+        {'BACKEND': 'channels_redis.core.RedisChannelLayer', 'CONFIG': {'hosts': [CHANNELS_REDIS_URL]}}
+        if CHANNELS_REDIS_URL
+        else {'BACKEND': 'channels.layers.InMemoryChannelLayer'}
     )
 }
 

@@ -1,6 +1,6 @@
 """
-Unread ticket-chat emails, sent by a job every 30 minutes (Celery Beat — see
-migration 0009 and ``tasks.send_ticket_chat_digests``).
+Unread ticket-chat emails, sent by a job every 5 minutes (Celery Beat — see
+migrations 0009/0014 and ``tasks.send_ticket_chat_digests``).
 
 Each run finds chat messages the other side hasn't read yet and hasn't already
 been emailed about, and sends one email per recipient:
@@ -11,9 +11,9 @@ been emailed about, and sends one email per recipient:
   unread client messages.
 
 Messages read in the dashboard are never emailed, a message is never emailed
-twice (``Ticket.client_emailed_upto`` / ``staff_emailed_upto``), and messages
-younger than :data:`MIN_AGE` wait for the next run — someone may be reading
-them live right now. A cache lock stops two overlapping runs double-sending.
+twice (``Ticket.client_emailed_upto`` / ``staff_emailed_upto``), and a message
+is only emailed once it has gone unread for :data:`MIN_AGE` (30 minutes) — the
+other side gets it live in the dashboard first. A cache lock stops two overlapping runs double-sending.
 """
 
 import logging
@@ -30,7 +30,7 @@ from .models import Ticket, TicketMessage
 
 logger = logging.getLogger('apps.client_portal')
 
-MIN_AGE = timedelta(minutes=2)
+MIN_AGE = timedelta(minutes=30)
 LOCK_KEY = 'ticket-chat-digest-lock'
 LOCK_SECONDS = 25 * 60
 

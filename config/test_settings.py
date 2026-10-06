@@ -265,3 +265,7 @@ INSTALLED_APPS = [app for app in INSTALLED_APPS if app != 'drf_yasg']
 # Chatbot API configuration (dummy values for testing)
 CHATBOT_API_KEY = 'test-api-key-do-not-use'
 CHATBOT_API_URL = 'https://api.example.com/chat'
+
+# Live ticket chat: one in-memory channel layer for the test process.
+ASGI_APPLICATION = 'config.asgi.application'
+CHANNEL_LAYERS = {'default': {'BACKEND': 'channels.layers.InMemoryChannelLayer'}}
