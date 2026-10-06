@@ -19,7 +19,7 @@ from apps.solar_dashboard.models import Site
 
 from .conftest import make_client, make_ticket
 
-LATER = timezone.now() + timedelta(minutes=31)  # "now" for runs: messages have been unread 30+ minutes
+UNREAD_FOR = timedelta(minutes=31)  # runs look this far ahead: messages have been unread 30+ minutes
 
 
 @pytest.fixture(autouse=True)
@@ -34,8 +34,10 @@ def say(ticket, role, body, author=None, age=None):
     return m
 
 
-def run(now=LATER):
-    return digests.send_chat_digests(now=now)
+def run(now=None):
+    # Worked out per call (not at import): a long test session would otherwise
+    # make messages written later look too new to email.
+    return digests.send_chat_digests(now=now or timezone.now() + UNREAD_FOR)
 
 
 @pytest.fixture
