@@ -82,6 +82,12 @@ class Ticket(models.Model):
     client_emailed_upto = models.PositiveBigIntegerField(default=0, editable=False)
     staff_emailed_upto = models.PositiveBigIntegerField(default=0, editable=False)
 
+    # New-ticket emails still to send (see apps.client_portal.alerts): set when
+    # a normal/urgent ticket is raised and cleared by the 30-minute job.
+    # Emergencies are emailed at once and never set these.
+    team_alert_pending = models.BooleanField(default=False, editable=False)
+    client_alert_pending = models.BooleanField(default=False, editable=False)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True, db_index=True)
 

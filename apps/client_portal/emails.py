@@ -1,6 +1,6 @@
 """
-Ticket emails: new ticket (team + client confirmation), the emergency
-Telegram ping, status updates, and the unread-chat digests (see digests.py).
+Ticket emails: new tickets (team + client confirmation — see alerts.py for
+when they go out), the emergency Telegram ping, status updates, and the unread-chat digests (see digests.py).
 
 Uses the shared dashboard email theme (``apps.core.mail``). Every value a
 client typed is HTML-escaped before it goes into a message. Failures are
@@ -37,6 +37,16 @@ def _client_phone(ticket):
     return profile.phone if profile else ''
 
 
+def _ticket_url(ticket):
+    return f'{settings.FRONTEND_BASE_URL}/dashboard/tickets/{ticket.pk}'
+
+
+def client_can_be_emailed(ticket):
+    """Ticket emails only ever go to a confirmed address."""
+    profile = _profile(ticket.client)
+    return bool(ticket.client.email and profile and profile.email_verified)
+
+
 def _send(subject, html, to):
     return send_html(subject, html, to, log_prefix='Client ticket')
 
@@ -61,35 +71,60 @@ def _detail_rows(ticket):
     return f'<table style="border-collapse: collapse; font-size: 14px;">{cells}</table>'
 
 
-def notify_team_new_ticket(ticket, admin_url=''):
-    """Tell the APS team a ticket was raised (there's no staff inbox yet)."""
-    urgency = ticket.get_urgency_display()
+# Longest problem description shown per ticket in a multi-ticket email.
+_NEW_TICKETS_EXCERPT = 600
+
+
+def _new_ticket_html(ticket, heading_tag='h3', excerpt=None):
     flag = ''
     if ticket.urgency == ticket.Urgency.EMERGENCY:
         flag = (
             '<p style="margin: 0 0 16px; padding: 10px 12px; background: #fdecea; color: #b3261e; '
             'border-radius: 4px; font-weight: bold;">EMERGENCY — the client expects a call now.</p>'
         )
-    link = (
-        f'<p style="margin: 16px 0 0;"><a href="{escape(admin_url)}" style="color: {ACCENT};">Open the ticket in admin</a></p>'
-        if admin_url else ''
-    )
-    body = f"""
+    problem = ticket.description
+    if excerpt and len(problem) > excerpt:
+        problem = problem[:excerpt] + '…'
+    return f"""
         {flag}
-        <h3 style="margin: 0 0 12px;">{escape(ticket.title)}</h3>
+        <{heading_tag} style="margin: 0 0 12px;">{escape(ticket.title)}</{heading_tag}>
         {_detail_rows(ticket)}
         <h4 style="margin: 16px 0 6px;">Problem</h4>
-        <div style="font-size: 14px;">{linebreaks(escape(ticket.description))}</div>
-        {link}
+        <div style="font-size: 14px;">{linebreaks(escape(problem))}</div>
+        <p style="margin: 16px 0 0;"><a href="{escape(_ticket_url(ticket))}" style="color: {ACCENT};">Open the ticket in the dashboard</a></p>
     """
-    subject = f'[{urgency}] New ticket {ticket.reference}: {ticket.title} ({_client_name(ticket)})'
-    return _send(subject, wrap_html('New Client Ticket', body), [settings.EMAIL_RECIPIENT])
+
+
+def notify_team_new_ticket(ticket):
+    """Tell the APS team one ticket was raised (emergencies: at once; others via alerts.py)."""
+    subject = f'[{ticket.get_urgency_display()}] New ticket {ticket.reference}: {ticket.title} ({_client_name(ticket)})'
+    return _send(subject, wrap_html('New Client Ticket', _new_ticket_html(ticket)), [settings.EMAIL_RECIPIENT])
+
+
+def notify_team_new_tickets(tickets):
+    """The 30-minute roundup: one email for every ticket raised since the last run."""
+    if len(tickets) == 1:
+        return notify_team_new_ticket(tickets[0])
+    urgent = sum(1 for t in tickets if t.urgency == t.Urgency.URGENT)
+    blocks = ''.join(
+        f'<div style="margin: 0 0 28px; padding-top: 16px; border-top: 1px solid #e5e5e5;">'
+        f'<p style="margin: 0 0 4px; color: #666; font-size: 13px;">{escape(t.reference)} · '
+        f'{escape(t.get_urgency_display())}</p>{_new_ticket_html(t, "h3", _NEW_TICKETS_EXCERPT)}</div>'
+        for t in tickets
+    )
+    body = f"""
+        <p style="margin: 0 0 18px;">{len(tickets)} new tickets since the last update
+        {f'({urgent} urgent)' if urgent else ''}:</p>
+        {blocks}
+    """
+    refs = ', '.join(t.reference for t in tickets[:4]) + (' …' if len(tickets) > 4 else '')
+    subject = f'{len(tickets)} new tickets{f" ({urgent} urgent)" if urgent else ""}: {refs}'
+    return _send(subject, wrap_html('New Client Tickets', body), [settings.EMAIL_RECIPIENT])
 
 
 def send_ticket_confirmation(ticket):
     """Acknowledge the ticket to the client — only at a confirmed email address."""
-    profile = _profile(ticket.client)
-    if not (ticket.client.email and profile and profile.email_verified):
+    if not client_can_be_emailed(ticket):
         return False
     if ticket.urgency == ticket.Urgency.EMERGENCY:
         next_step = 'This is marked as an emergency, so the team will call you shortly.'

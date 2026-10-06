@@ -16,6 +16,7 @@ from django.core import mail
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.utils import timezone
 
+from apps.client_portal.alerts import send_new_ticket_alerts
 from apps.client_portal.models import Ticket, TicketAttachment
 from apps.solar_dashboard.models import SiteData, Site, SolarReport
 
@@ -440,6 +441,11 @@ def test_create_ticket(client_user, api, site, django_capture_on_commit_callback
     stored = TicketAttachment.objects.first().file.name
     assert 'photo' not in stored and 'quote' not in stored  # random names
 
+    # Not an emergency: nothing is emailed until the 30-minute job runs.
+    assert mail.outbox == []
+    assert ticket.team_alert_pending and ticket.client_alert_pending
+    send_new_ticket_alerts()
+
     team = [m for m in mail.outbox if m.to == ['admin@example.com']]
     assert len(team) == 1
     assert team[0].subject.startswith('[Normal] New ticket') and ticket.reference in team[0].subject
@@ -458,7 +464,9 @@ def test_no_confirmation_to_unverified_email(site, django_capture_on_commit_call
     with django_capture_on_commit_callbacks(execute=True):
         res = api_for(user).post(TICKETS_URL, _payload(their_site), format='multipart')
     assert res.status_code == 201
+    send_new_ticket_alerts()
     assert [m.to for m in mail.outbox] == [['admin@example.com']]
+    assert not Ticket.objects.get().client_alert_pending  # nothing to send, so not retried
 
 
 def test_create_escapes_user_text_in_email(api, site, django_capture_on_commit_callbacks):
@@ -469,6 +477,7 @@ def test_create_escapes_user_text_in_email(api, site, django_capture_on_commit_c
                      site_contact_name='<b>Bob</b>'),
             format='multipart',
         )
+    send_new_ticket_alerts()
     team = next(m for m in mail.outbox if 'New ticket' in m.subject)
     assert '<script>' not in team.body
     assert '<img' not in team.body
@@ -479,6 +488,9 @@ def test_create_escapes_user_text_in_email(api, site, django_capture_on_commit_c
 def test_create_emergency_flags_team_email(api, site, django_capture_on_commit_callbacks):
     with django_capture_on_commit_callbacks(execute=True):
         api.post(TICKETS_URL, _payload(site, urgency='emergency'), format='multipart')
+    # Emergencies don't wait for the 30-minute job.
+    ticket = Ticket.objects.get()
+    assert not ticket.team_alert_pending and not ticket.client_alert_pending
     team = next(m for m in mail.outbox if 'New ticket' in m.subject)
     assert team.subject.startswith('[Emergency]')
     assert 'EMERGENCY' in team.body

@@ -27,7 +27,6 @@ from functools import partial
 
 from django.db import transaction
 from django.db.models import Count, F, Q
-from django.urls import reverse
 from rest_framework import generics, serializers as drf_serializers, status
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
@@ -333,8 +332,15 @@ class TicketListCreateView(_ClientView, generics.ListCreateAPIView):
             return Response({'files': exc.detail}, status=status.HTTP_400_BAD_REQUEST)
 
         client = request.user
+        emergency = serializer.validated_data.get('urgency') == Ticket.Urgency.EMERGENCY
         with transaction.atomic():
-            ticket = serializer.save(client=client)
+            # Emergencies are emailed at once; anything else waits for the
+            # 30-minute new-ticket job (apps.client_portal.alerts).
+            ticket = serializer.save(
+                client=client,
+                team_alert_pending=not emergency,
+                client_alert_pending=not emergency,
+            )
             for upload, content_type in files:
                 TicketAttachment.objects.create(
                     ticket=ticket,
@@ -344,10 +350,8 @@ class TicketListCreateView(_ClientView, generics.ListCreateAPIView):
                     size=upload.size,
                 )
 
-            admin_url = request.build_absolute_uri(
-                reverse('admin:client_portal_ticket_change', args=[ticket.pk])
-            )
-            transaction.on_commit(lambda: _notify_new_ticket(ticket.pk, admin_url))
+            if emergency:
+                transaction.on_commit(lambda: _notify_new_ticket(ticket.pk))
 
         ticket = self.get_queryset().get(pk=ticket.pk)
         logger.info(f'{client.username} raised {ticket.reference} ({ticket.urgency})')
@@ -366,8 +370,9 @@ class ClientTicketDetailView(_ClientView, generics.RetrieveAPIView):
         )
 
 
-def _notify_new_ticket(ticket_pk, admin_url):
+def _notify_new_ticket(ticket_pk):
+    """An emergency: team email, client confirmation and Telegram ping, straight away."""
     ticket = Ticket.objects.select_related('client__client_profile', 'site').get(pk=ticket_pk)
-    notify_team_new_ticket(ticket, admin_url)
+    notify_team_new_ticket(ticket)
     send_ticket_confirmation(ticket)
     ping_telegram_emergency(ticket)

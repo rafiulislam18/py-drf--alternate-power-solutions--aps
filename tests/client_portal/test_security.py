@@ -17,6 +17,7 @@ from django.core import mail
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.client_portal.emails import notify_team_new_ticket
+from apps.client_portal.alerts import send_new_ticket_alerts
 from apps.client_portal.models import Ticket
 from apps.solar_dashboard.models import Site
 
@@ -182,6 +183,7 @@ def test_title_newline_is_flattened_and_team_still_emailed(api, site, django_cap
         )
     assert res.status_code == 201, res.data
     assert Ticket.objects.get().title == 'DB board tripping in block B'
+    send_new_ticket_alerts()
     team = [m for m in mail.outbox if 'New ticket' in m.subject]
     assert len(team) == 1
     assert 'DB board tripping in block B' in team[0].subject

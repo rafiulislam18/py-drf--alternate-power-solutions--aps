@@ -534,6 +534,7 @@ CELERY_TIMEZONE = 'Africa/Johannesburg'   # ← Client timezone
 CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'
 
 # NOTE: Stope celery for local dev, when good to have
+# Set CELERY_EAGER=False in production to keep celery running
 CELERY_TASK_ALWAYS_EAGER = os.getenv('CELERY_EAGER', 'True').strip().strip('\'"').lower() != 'false'
 
 
