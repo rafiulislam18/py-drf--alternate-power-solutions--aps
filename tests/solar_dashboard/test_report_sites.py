@@ -166,3 +166,46 @@ class TestReportWithSiteId:
         rows = SiteData.objects.filter(report=report)
         assert rows.count() == 1
         assert rows.first().site_id == s2.id
+
+
+@pytest.mark.django_db
+class TestOneRowPerSite:
+    """A report may list each site once; the exact view keys its cards by site."""
+
+    def test_duplicate_site_rejected_on_create(self, admin_api_client, client_user):
+        s = _site(client_user)
+        payload = _report_payload(client_user.id, [
+            {'site_id': s.id, 'solar_yield': '10.00'},
+            {'site_id': s.id, 'solar_yield': '20.00'},
+        ])
+        res = admin_api_client.post('/dashboard/reports/', payload, format='json')
+        assert res.status_code == 400
+        assert not SolarReport.objects.exists()
+
+    def test_duplicate_site_rejected_on_update(self, admin_api_client, client_user):
+        s = _site(client_user)
+        res = admin_api_client.post('/dashboard/reports/', _report_payload(client_user.id, [
+            {'site_id': s.id, 'solar_yield': '10.00'},
+        ]), format='json')
+        uuid = res.data['uuid']
+        res = admin_api_client.put(f'/dashboard/reports/{uuid}/', _report_payload(client_user.id, [
+            {'site_id': s.id, 'solar_yield': '10.00'},
+            {'site_id': s.id, 'solar_yield': '20.00'},
+        ]), format='json')
+        assert res.status_code == 400
+        assert SiteData.objects.count() == 1   # original row untouched
+
+    def test_exact_view_rows_have_distinct_site_ids(self, admin_api_client, api_client, client_user):
+        # Two sites with data plus two padded (no data this period): padded rows
+        # have id=None, so the site identity is what must be unique.
+        a, b = _site(client_user, name='A'), _site(client_user, name='B')
+        _site(client_user, name='C')
+        _site(client_user, name='D')
+        res = admin_api_client.post('/dashboard/reports/', _report_payload(client_user.id, [
+            {'site_id': a.id, 'solar_yield': '1.00'},
+            {'site_id': b.id, 'solar_yield': '2.00'},
+        ]), format='json')
+        rows = api_client.get(f"/dashboard/reports/{res.data['uuid']}/").data['sites']
+        assert len(rows) == 4
+        assert [r['id'] is None for r in rows].count(True) == 2
+        assert len({r['site']['id'] for r in rows}) == 4

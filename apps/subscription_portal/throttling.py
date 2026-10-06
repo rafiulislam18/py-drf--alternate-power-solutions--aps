@@ -40,7 +40,11 @@ class _EmailScopedThrottle(SimpleRateThrottle):
     def get_cache_key(self, request, view):
         email = ''
         if request.method == 'POST' and isinstance(request.data, dict):
-            email = (request.data.get('email') or '').strip().lower()
+            raw = request.data.get('email')
+            # A non-string email (JSON number/list/object) falls back to the IP
+            # instead of crashing; the view then rejects it as a 400.
+            if isinstance(raw, str):
+                email = raw.strip().lower()
         ident = email or self.get_ident(request)
         return self.cache_format % {'scope': self.scope, 'ident': ident}
 

@@ -1,3 +1,5 @@
+import uuid as uuid_lib
+from collections import Counter
 from datetime import date, timedelta
 from decimal import Decimal
 
@@ -6,18 +8,26 @@ from django.db.models import Q, Min, Max
 from rest_framework.views import APIView
 from rest_framework import status
 from rest_framework.response import Response
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.pagination import PageNumberPagination
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
-from rest_framework_simplejwt.views import TokenObtainPairView
+from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from apps.core.models import ClientProfile
+from apps.core.roles import get_role
 from .models import SolarReport, SiteData, Site
+from apps.accounts.authentication import DashboardTokenRefreshSerializer
+from apps.accounts.login import resolve_login_identifier
+from apps.accounts.tokens import password_version
+from apps.accounts.views import queue_verification
+from .throttling import LoginIpThrottle, LoginUsernameThrottle
 from .serializers import (
     SolarReportSerializer,
     SolarReportListSerializer,
     ClientUserSerializer,
     CreateClientUserSerializer,
+    PublicClientSerializer,
     SiteSerializer,
 )
 
@@ -33,34 +43,54 @@ AGGREGATE_NUMERIC_FIELDS = [
 ]
 
 
-def get_role(user):
-    try:
-        return user.client_profile.role
-    except ClientProfile.DoesNotExist:
-        return 'admin'  # Users without a profile are treated as admin (staff accounts)
-
-
 class DashboardTokenObtainPairSerializer(TokenObtainPairSerializer):
+    """Sign in with username or email + password (see apps.accounts)."""
+
+    default_error_messages = {
+        'no_active_account': 'No active account found with that username or email and password.',
+    }
+
+    @classmethod
+    def get_token(cls, user):
+        token = super().get_token(user)
+        # Changing the password changes this, which ends every other session.
+        token['pv'] = password_version(user)
+        return token
+
     def validate(self, attrs):
+        attrs[self.username_field] = resolve_login_identifier(attrs.get(self.username_field))
         data = super().validate(attrs)
-        role = get_role(self.user)
-        data['role'] = role
-        data['user_id'] = self.user.id
+        user = self.user
         try:
-            profile = self.user.client_profile
-            data['company_name'] = profile.company_name
-            if profile.image:
-                data['image'] = profile.image.url
-            else:
-                data['image'] = None
+            profile = user.client_profile
         except ClientProfile.DoesNotExist:
-            data['company_name'] = ''
-            data['image'] = None
+            profile = None
+
+        # A self-registered account can't be used until its email is confirmed
+        # (only reached with the right password, so it reveals nothing new).
+        if profile and profile.self_registered and not profile.email_verified:
+            queue_verification(user)
+            raise PermissionDenied(
+                f"Please confirm your email first. We've sent a link to {user.email}. "
+                f"Click it, then sign in."
+            )
+
+        data['role'] = get_role(user)
+        data['user_id'] = user.id
+        data['username'] = user.username
+        data['email'] = user.email
+        data['company_name'] = profile.company_name if profile else ''
+        data['image'] = profile.image.url if profile and profile.image else None
         return data
 
 
 class DashboardTokenObtainPairView(TokenObtainPairView):
     serializer_class = DashboardTokenObtainPairSerializer
+    throttle_classes = [LoginIpThrottle, LoginUsernameThrottle]
+
+
+class DashboardTokenRefreshView(TokenRefreshView):
+    serializer_class = DashboardTokenRefreshSerializer
 
 
 class ReportPagination(PageNumberPagination):
@@ -77,17 +107,25 @@ class SolarReportListCreateView(APIView):
 
     def get(self, request):
         search = request.query_params.get('search', '').strip()
-        sort = request.query_params.get('sort', '-created_at')
+        sort = request.query_params.get('sort', '-period_start')
 
+        # Reports are listed by the period they cover (newest first by default).
+        # The old created_at keys are kept as aliases for saved links.
         allowed_sorts = {
-            'created_at': 'report_date',
-            '-created_at': '-report_date',
+            '-period_start': '-period_start',
+            'period_start': 'period_start',
+            '-created_at': '-period_start',
+            'created_at': 'period_start',
             'client_name': 'client__client_profile__company_name',
             '-client_name': '-client__client_profile__company_name',
         }
-        order_by = allowed_sorts.get(sort, '-report_date')
+        order_by = allowed_sorts.get(sort, '-period_start')
 
-        qs = SolarReport.objects.select_related('client__client_profile').order_by(order_by)
+        # Tie-breakers so paging is stable (many reports share a client, and
+        # Postgres may otherwise return ties in any order); within a client,
+        # newest period first.
+        qs = SolarReport.objects.select_related('client__client_profile').order_by(
+            order_by, '-period_start', '-pk')
 
         role = get_role(request.user)
         if role == 'client':
@@ -179,6 +217,9 @@ class CreateClientView(APIView):
         serializer = CreateClientUserSerializer(data=request.data)
         if serializer.is_valid():
             user = serializer.save()
+            if user.email:
+                # Their email only works for sign-in once they click this link.
+                queue_verification(user)
             return Response(
                 ClientUserSerializer(user, context={'request': request}).data,
                 status=status.HTTP_201_CREATED,
@@ -306,8 +347,9 @@ class SolarReportAggregateView(APIView):
             )
 
         try:
-            anchor = SolarReport.objects.select_related('client__client_profile').get(uuid=report_uuid)
-        except SolarReport.DoesNotExist:
+            anchor = SolarReport.objects.select_related('client__client_profile').get(
+                uuid=uuid_lib.UUID(str(report_uuid)))
+        except (ValueError, SolarReport.DoesNotExist):
             return Response({'error': 'Report not found'}, status=status.HTTP_404_NOT_FOUND)
 
         client = anchor.client
@@ -347,21 +389,27 @@ class SolarReportAggregateView(APIView):
         # sites appear.
         per_site_totals = {}       # site_id -> {field: Decimal}
         sites_with_data = {}       # site_id -> Site instance (seen in range)
-        covered_days = set()
 
+        # Clip each report to the range, and count how many reports cover each
+        # day. Overlapping periods are refused on save, but older data may still
+        # overlap: a day covered by N reports contributes 1/N from each, so it's
+        # never counted twice.
+        clipped = []
+        cover = Counter()
         for report in reports:
             r_start = max(report.period_start, from_d)
             r_end = min(report.period_end, to_d)
-            if r_start > r_end:
-                continue
-            overlap_days = (r_end - r_start).days + 1
             report_days = (report.period_end - report.period_start).days + 1
-            if report_days <= 0:
+            if r_start > r_end or report_days <= 0:
                 continue
-            fraction = Decimal(overlap_days) / Decimal(report_days)
+            days = [r_start + timedelta(days=i) for i in range((r_end - r_start).days + 1)]
+            clipped.append((report, days, report_days))
+            cover.update(days)
+        covered_days = set(cover)
 
-            for i in range(overlap_days):
-                covered_days.add(r_start + timedelta(days=i))
+        for report, days, report_days in clipped:
+            share = sum(Decimal(1) / Decimal(cover[d]) for d in days)
+            fraction = share / Decimal(report_days)
 
             for row in report.sites.all():
                 site = row.site
@@ -409,7 +457,7 @@ class SolarReportAggregateView(APIView):
                 site_obj[field] = str(final.quantize(Decimal('0.01')))
             sites_out.append(site_obj)
 
-        client_data = ClientUserSerializer(client, context={'request': request}).data
+        client_data = PublicClientSerializer(client, context={'request': request}).data
         sibling_reports = list(
             SolarReport.objects
             .filter(client=client)

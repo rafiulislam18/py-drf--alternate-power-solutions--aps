@@ -1,7 +1,7 @@
 from django.urls import path
-from rest_framework_simplejwt.views import TokenRefreshView
 from .views import (
     DashboardTokenObtainPairView,
+    DashboardTokenRefreshView,
     SolarReportListCreateView,
     SolarReportDetailView,
     SolarReportAggregateView,
@@ -14,7 +14,7 @@ from .views import (
 
 urlpatterns = [
     path('auth/token/', DashboardTokenObtainPairView.as_view(), name='dashboard-token-obtain'),
-    path('auth/token/refresh/', TokenRefreshView.as_view(), name='dashboard-token-refresh'),
+    path('auth/token/refresh/', DashboardTokenRefreshView.as_view(), name='dashboard-token-refresh'),
     path('reports/', SolarReportListCreateView.as_view(), name='solar-report-list-create'),
     path('reports/aggregate/', SolarReportAggregateView.as_view(), name='solar-report-aggregate'),
     path('reports/<uuid:uuid>/', SolarReportDetailView.as_view(), name='solar-report-detail'),

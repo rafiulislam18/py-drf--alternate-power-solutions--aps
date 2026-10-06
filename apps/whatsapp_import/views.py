@@ -5,6 +5,10 @@ Admin-only, behind the same JWT auth as the solar dashboard. The ops manager
 lists messages (filterable by chat), and marks/unmarks them as jobs — per
 message or in bulk. Marking stamps `marked_as_job_at`; a later step pushes
 newly-marked, not-yet-exported messages into the jobs spreadsheet.
+
+One rule for job vs "not a job", single and bulk alike: marking a message as a
+job clears its dismissal, and dismissing clears its job flag. Messages already
+exported to the sheet are locked — their job flag never changes.
 """
 
 from django.db.models import Q
@@ -15,8 +19,10 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.solar_dashboard.views import get_role
-from .jobs_export import JobsSheetConfigError, export_marked_jobs, pending_jobs_qs
+from apps.core.roles import get_role
+from .jobs_export import (
+    ExportInProgress, JobsSheetConfigError, export_marked_jobs, pending_jobs_qs,
+)
 from .models import WhatsAppMessage
 from .serializers import (
     BulkDismissSerializer, BulkMarkJobSerializer, DismissSerializer,
@@ -35,6 +41,17 @@ def _require_admin(request):
     if get_role(request.user) != 'admin':
         return Response({'detail': 'Forbidden'}, status=status.HTTP_403_FORBIDDEN)
     return None
+
+
+def _filter_chat_and_search(qs, request):
+    """Apply the `chat` + `search` query params (shared by list and counts)."""
+    chat = request.query_params.get('chat', '').strip()
+    if chat:
+        qs = qs.filter(chat_name=chat)
+    search = request.query_params.get('search', '').strip()
+    if search:
+        qs = qs.filter(Q(text__icontains=search) | Q(sender__icontains=search))
+    return qs
 
 
 class WhatsAppMessageListView(APIView):
@@ -61,11 +78,7 @@ class WhatsAppMessageListView(APIView):
         if forbidden:
             return forbidden
 
-        qs = WhatsAppMessage.objects.all()
-
-        chat = request.query_params.get('chat', '').strip()
-        if chat:
-            qs = qs.filter(chat_name=chat)
+        qs = _filter_chat_and_search(WhatsAppMessage.objects.all(), request)
 
         job_status = request.query_params.get('status', 'unmarked')
         if job_status == 'marked':
@@ -77,10 +90,6 @@ class WhatsAppMessageListView(APIView):
         else:  # 'unmarked' — the default triage queue
             qs = qs.filter(marked_as_job=False, dismissed=False)
 
-        search = request.query_params.get('search', '').strip()
-        if search:
-            qs = qs.filter(Q(text__icontains=search) | Q(sender__icontains=search))
-
         paginator = self.pagination_class()
         page = paginator.paginate_queryset(qs, request)
         serializer = WhatsAppMessageSerializer(page, many=True)
@@ -88,7 +97,7 @@ class WhatsAppMessageListView(APIView):
 
 
 class WhatsAppStatusCountsView(APIView):
-    """GET the per-status message tallies for the filter tabs (respects `chat`)."""
+    """GET the per-status message tallies for the filter tabs (respects `chat` + `search`)."""
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
@@ -96,10 +105,7 @@ class WhatsAppStatusCountsView(APIView):
         if forbidden:
             return forbidden
 
-        qs = WhatsAppMessage.objects.all()
-        chat = request.query_params.get('chat', '').strip()
-        if chat:
-            qs = qs.filter(chat_name=chat)
+        qs = _filter_chat_and_search(WhatsAppMessage.objects.all(), request)
 
         return Response({
             'unmarked': qs.filter(marked_as_job=False, dismissed=False).count(),
@@ -145,7 +151,7 @@ class WhatsAppMessageMarkView(APIView):
         serializer = MarkJobSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         _apply_mark(message, serializer.validated_data['marked_as_job'])
-        message.save(update_fields=['marked_as_job', 'marked_as_job_at'])
+        message.save(update_fields=['marked_as_job', 'marked_as_job_at', 'dismissed', 'dismissed_at'])
         return Response(WhatsAppMessageSerializer(message).data, status=status.HTTP_200_OK)
 
 
@@ -165,10 +171,16 @@ class WhatsAppMessageBulkMarkView(APIView):
 
         now = timezone.now()
         if mark:
+            # Marking as a job clears any "not a job" dismissal (same as the
+            # single endpoint). Exported messages are locked and left alone.
+            base = WhatsAppMessage.objects.filter(pk__in=ids, exported_to_jobs_sheet=False)
+            # Already-marked but dismissed ones: just un-dismiss, keep their stamp.
+            restored = (base.filter(marked_as_job=True, dismissed=True)
+                        .update(dismissed=False, dismissed_at=None))
             # Only stamp marked_as_job_at on messages that weren't already marked.
-            updated = (WhatsAppMessage.objects
-                       .filter(pk__in=ids, marked_as_job=False)
-                       .update(marked_as_job=True, marked_as_job_at=now))
+            updated = restored + (base.filter(marked_as_job=False)
+                                  .update(marked_as_job=True, marked_as_job_at=now,
+                                          dismissed=False, dismissed_at=None))
         else:
             # Don't unmark ones already pushed to the sheet (would desync a job).
             updated = (WhatsAppMessage.objects
@@ -261,6 +273,11 @@ class WhatsAppJobsExportView(APIView):
             stats = export_marked_jobs()
         except JobsSheetConfigError as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        except ExportInProgress:
+            return Response(
+                {'detail': 'An export is already running. Try again in a minute.'},
+                status=status.HTTP_409_CONFLICT,
+            )
 
         if stats.get('error'):
             return Response(
@@ -272,12 +289,16 @@ class WhatsAppJobsExportView(APIView):
 
 def _apply_mark(message, mark):
     """Set the job flag + timestamp on an in-memory message instance."""
-    if mark and not message.marked_as_job:
-        message.marked_as_job = True
-        message.marked_as_job_at = timezone.now()
-    elif not mark:
-        # Guard: refuse to unmark something already exported to the sheet.
-        if message.exported_to_jobs_sheet:
-            return
+    # Guard: exported messages are locked — never re-flag or unmark them.
+    if message.exported_to_jobs_sheet:
+        return
+    if mark:
+        if not message.marked_as_job:
+            message.marked_as_job = True
+            message.marked_as_job_at = timezone.now()
+        # A job is by definition not "not a job" — clear any dismissal.
+        message.dismissed = False
+        message.dismissed_at = None
+    else:
         message.marked_as_job = False
         message.marked_as_job_at = None

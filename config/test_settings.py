@@ -42,8 +42,10 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt.token_blacklist',  # Gas Guard logout blacklists refresh tokens
     'apps.blog',
     'apps.chatbot',
+    'apps.client_portal',
     'apps.container_conversion',
     'apps.core',
+    'apps.accounts',
     'apps.fault_detection',
     'apps.quote_request',
     'apps.request_solar_cleaning',
@@ -145,7 +147,8 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # REST Framework Settings
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        # Simplejwt + a password-version check (apps.accounts.authentication).
+        'apps.accounts.authentication.DashboardJWTAuthentication',
     ],
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
@@ -155,6 +158,15 @@ REST_FRAMEWORK = {
     'DEFAULT_THROTTLE_RATES': {
         'portal_otp_request': '5/30m',
         'portal_otp_verify': '10/30m',
+        'client_portal_ticket_create': '30/h',
+        'client_portal_site_write': '30/h',
+        'client_portal_message': '120/h',
+        'accounts_ip': '30/15m',
+        'accounts_email': '5/30m',
+        'accounts_password': '10/15m',
+        # Staff/client dashboard password login: per IP and per username.
+        'dashboard_login_ip': '30/15m',
+        'dashboard_login_user': '10/15m',
     },
     'TEST': {
         'DEFAULT_FORMAT': 'json'
@@ -215,6 +227,16 @@ EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 EMAIL_HOST_USER = 'test@example.com'
 DEFAULT_FROM_EMAIL = 'test@example.com'
 EMAIL_RECIPIENT = 'admin@example.com'
+
+# Base URL for links in emails (account verify/reset links, fault pickups).
+# Without it apps.accounts.emails raises AttributeError and the email never goes.
+FRONTEND_BASE_URL = 'https://frontend.example'
+
+# Same sign-in backends as production (case-insensitive usernames).
+AUTHENTICATION_BACKENDS = [
+    'apps.core.backends.CaseInsensitiveModelBackend',
+    'django.contrib.auth.backends.ModelBackend',
+]
 
 # Celery configuration for testing (synchronous)
 CELERY_TASK_ALWAYS_EAGER = True

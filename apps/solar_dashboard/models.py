@@ -33,12 +33,15 @@ class SolarReport(models.Model):
 
 
 class Site(models.Model):
-    """A reusable, per-client site (created once, referenced by many reports).
+    """A client's property — the one site list shared by solar reports and tickets.
 
-    Holds the site's *identity* (name + whether it has a battery). The changing
-    per-period numbers live on SiteData, which points at a Site. Retire a site by
-    setting is_active=False: it's hidden from new report forms but old reports that
-    already reference it keep working (never hard-deleted while history exists).
+    Holds the site's *identity* (name, address, whether it has a battery). Solar
+    reports' per-period numbers live on SiteData, and tickets
+    (apps.client_portal.Ticket) point here too. Clients add and rename their own
+    sites from the dashboard; APS can also add them while writing a report.
+    Retire a site by setting is_active=False: it's hidden from new reports and
+    ticket forms but history that already references it keeps working (never
+    hard-deleted while history exists).
     """
     client = models.ForeignKey(
         User,
@@ -46,9 +49,18 @@ class Site(models.Model):
         related_name='sites',
     )
     name = models.CharField(max_length=200)
+    address = models.CharField(max_length=300, blank=True)
     has_battery = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True, db_index=True)
     order = models.PositiveSmallIntegerField(default=0)
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='sites_added',
+        help_text='Who added it: the client, or blank/staff when APS added it.',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

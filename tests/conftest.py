@@ -356,6 +356,28 @@ def staff_user_factory():
     return StaffUserFactory
 
 
+@pytest.fixture(autouse=True)
+def _account_emails_run_inline(monkeypatch):
+    """
+    apps.accounts sends its emails (verify, reset, claim, "account exists") on
+    a daemon thread so response timing can't reveal which emails have accounts.
+    In tests, run them inline on the request thread instead: ``mail.outbox`` is
+    then filled by the time the response comes back, and the email code shares
+    the test's database connection (a second thread wouldn't see uncommitted
+    test rows). ``.real`` keeps the threaded runner for tests that need it.
+    """
+    from apps.accounts import views as account_views
+
+    real = account_views._run_in_background
+
+    def run_inline(fn, *args):
+        fn(*args)
+        return None
+
+    run_inline.real = real
+    monkeypatch.setattr(account_views, '_run_in_background', run_inline)
+
+
 # ============================================================================
 # Pytest Configuration Hooks
 # ============================================================================

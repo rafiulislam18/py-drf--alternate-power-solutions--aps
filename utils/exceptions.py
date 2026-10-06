@@ -23,7 +23,15 @@ def _extract_detail(data):
     return data
 
 
-def custom_exception_handler(exc, context):
+def custom_exception_handler(exc, context, keep_fields=False):
+    """
+    Wrap every handled error as ``{"detail": "..."}``.
+
+    ``keep_fields=True`` also keeps field-level validation errors alongside the
+    detail (``{"detail": "...", "name": ["..."]}``) for views whose forms
+    highlight the offending field — opted into per view (see
+    ``apps.client_portal.views``), so every other endpoint keeps the flat shape.
+    """
     # Get the default DRF error response
     response = exception_handler(exc, context)
 
@@ -50,7 +58,10 @@ def custom_exception_handler(exc, context):
         # raising a KeyError.
         detail = _extract_detail(data)
 
-        return Response({"detail": detail}, status=response.status_code)
+        body = {"detail": detail}
+        if keep_fields and isinstance(data, dict) and 'detail' not in data:
+            body.update(data)
+        return Response(body, status=response.status_code)
 
     # response is None -> DRF did not handle it: an unexpected exception that
     # will become a 500. Log the full traceback so it reaches Telegram.

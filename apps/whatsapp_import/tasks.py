@@ -11,7 +11,7 @@ import logging
 from celery import shared_task
 
 from .drive import DriveConfigError
-from .jobs_export import JobsSheetConfigError, export_marked_jobs
+from .jobs_export import ExportInProgress, JobsSheetConfigError, export_marked_jobs
 from .services import import_new_files
 
 logger = logging.getLogger(__name__)
@@ -51,6 +51,11 @@ def export_jobs_to_sheet(self):
     except JobsSheetConfigError as exc:
         logger.error("Jobs export skipped — sheet not configured: %s", exc)
         return f"skipped: {exc}"
+    except ExportInProgress:
+        # A manual push (or an earlier run) is already exporting — it will pick
+        # up the same pending messages, so skip rather than retry into it.
+        logger.info("Jobs export skipped — another export is already running.")
+        return "skipped: export already running"
 
     if stats.get('error'):
         # Delivery failed (network/sheet error) — retry; the messages stay

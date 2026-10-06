@@ -24,8 +24,6 @@ import random
 import string
 from datetime import timedelta
 
-from django.core.signing import BadSignature
-from django.db import transaction
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.decorators import (
@@ -37,10 +35,10 @@ from rest_framework.decorators import (
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
+from .cancellation import cancel_for_email
 from .emails import send_otp_email
 from .models import OTP_MAX_ATTEMPTS, OTP_TTL, PortalOTP
-from .payfast import cancel_payfast_subscription
-from .providers import gather_payments, gather_subscriptions, get_owned_subscription
+from .providers import gather_payments, gather_subscriptions
 from .throttling import OtpRequestThrottle, OtpVerifyThrottle
 from .tokens import PortalTokenError, email_from_auth_header, issue_portal_token
 
@@ -206,45 +204,5 @@ def cancel(request):
     except PortalTokenError as e:
         return Response({'detail': str(e)}, status=status.HTTP_401_UNAUTHORIZED)
 
-    ref = (request.data.get('ref') or '').strip()
-    if not ref:
-        return Response({'detail': 'Missing subscription reference.'}, status=status.HTTP_400_BAD_REQUEST)
-
-    try:
-        sub = get_owned_subscription(email, ref)
-    except (BadSignature, ValueError):
-        return Response({'detail': 'Invalid subscription reference.'}, status=status.HTTP_400_BAD_REQUEST)
-
-    if sub is None:
-        # Either the row is gone or it isn't owned by this email. Same 403 either
-        # way so we don't leak which.
-        return Response(
-            {'detail': 'You are not authorised to cancel this subscription.'},
-            status=status.HTTP_403_FORBIDDEN,
-        )
-
-    if not sub.is_active:
-        return Response(
-            {'detail': 'This subscription is already inactive.'},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-
-    # Real cancel at PayFast first — if that fails, don't touch our DB so the
-    # user (and PayFast) stay consistent and they can retry.
-    if not cancel_payfast_subscription(sub.payfast_token):
-        return Response(
-            {'detail': 'We couldn\'t cancel this subscription with the payment '
-                       'provider right now. Please try again shortly.'},
-            status=status.HTTP_502_BAD_GATEWAY,
-        )
-
-    with transaction.atomic():
-        sub.is_active = False
-        sub.save(update_fields=['is_active', 'updated_at'])
-
-    logger.info(f'Portal cancel: {email} cancelled {ref}')
-    return Response(
-        {'detail': 'Your subscription has been cancelled. You keep access until '
-                   'the end of your current paid period.'},
-        status=status.HTTP_200_OK,
-    )
+    code, detail = cancel_for_email(email, request.data.get('ref'), source='Portal')
+    return Response({'detail': detail}, status=code)

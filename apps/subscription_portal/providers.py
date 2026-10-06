@@ -143,6 +143,25 @@ def gather_subscriptions(email):
     return out
 
 
+def find_subscriber(email):
+    """
+    ``{'name', 'phone'}`` of the newest checkout Client that has at least one
+    subscription under ``email`` (either app), or ``None``. Used to offer a
+    dashboard account to existing subscribers who've never had a login.
+    """
+    best = None
+    for cfg in _PROVIDERS.values():
+        sub = (
+            cfg['model'].objects.filter(client__email__iexact=email)
+            .select_related('client').order_by('-created_at').first()
+        )
+        if sub and (best is None or sub.created_at > best.created_at):
+            best = sub
+    if best is None:
+        return None
+    return {'name': (best.client.name or '').strip(), 'phone': (best.client.phone or '').strip()}
+
+
 def get_owned_subscription(email, ref):
     """
     Resolve ``ref`` to its model instance, but ONLY if ``email`` owns it.

@@ -4,10 +4,10 @@ from .models import SolarReport, SiteData, Site
 
 @admin.register(Site)
 class SiteAdmin(admin.ModelAdmin):
-    list_display = ['name', 'get_client_name', 'has_battery', 'is_active', 'order']
+    list_display = ['name', 'get_client_name', 'address', 'has_battery', 'is_active', 'order']
     list_filter = ['is_active', 'has_battery']
-    search_fields = ['name', 'client__username', 'client__client_profile__company_name']
-    autocomplete_fields = ['client']
+    search_fields = ['name', 'address', 'client__username', 'client__client_profile__company_name']
+    autocomplete_fields = ['client', 'created_by']
     readonly_fields = ['created_at', 'updated_at']
 
     @admin.display(description='Client')

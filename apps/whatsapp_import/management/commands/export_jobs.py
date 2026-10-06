@@ -9,7 +9,9 @@ Usage:
 
 from django.core.management.base import BaseCommand
 
-from apps.whatsapp_import.jobs_export import JobsSheetConfigError, export_marked_jobs
+from apps.whatsapp_import.jobs_export import (
+    ExportInProgress, JobsSheetConfigError, export_marked_jobs,
+)
 
 
 class Command(BaseCommand):
@@ -20,6 +22,9 @@ class Command(BaseCommand):
             stats = export_marked_jobs()
         except JobsSheetConfigError as exc:
             self.stderr.write(self.style.ERROR(f"Jobs sheet not configured: {exc}"))
+            return
+        except ExportInProgress:
+            self.stderr.write(self.style.ERROR("An export is already running; try again shortly."))
             return
 
         if stats.get('error'):

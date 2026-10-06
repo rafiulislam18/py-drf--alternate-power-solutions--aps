@@ -190,7 +190,7 @@ def test_subscriptions_only_returns_token_email_rows(api_client, inverter_sub):
 # ── cancel (protected + ownership) ───────────────────────────────────────────
 
 @pytest.mark.django_db
-@patch('apps.subscription_portal.views.cancel_payfast_subscription', return_value=True)
+@patch('apps.subscription_portal.cancellation.cancel_payfast_subscription', return_value=True)
 def test_cancel_deactivates_and_calls_payfast(mock_cancel, api_client, inverter_sub):
     token = issue_portal_token(EMAIL)
     ref = _get_ref(api_client, token, 'inverter')
@@ -203,7 +203,7 @@ def test_cancel_deactivates_and_calls_payfast(mock_cancel, api_client, inverter_
 
 
 @pytest.mark.django_db
-@patch('apps.subscription_portal.views.cancel_payfast_subscription', return_value=True)
+@patch('apps.subscription_portal.cancellation.cancel_payfast_subscription', return_value=True)
 def test_cancel_rejects_non_owner(mock_cancel, api_client, inverter_sub):
     # Attacker holds a valid token for THEIR email, tries to cancel EMAIL's sub
     # using EMAIL's ref (obtained here for the test).
@@ -219,7 +219,7 @@ def test_cancel_rejects_non_owner(mock_cancel, api_client, inverter_sub):
 
 
 @pytest.mark.django_db
-@patch('apps.subscription_portal.views.cancel_payfast_subscription', return_value=False)
+@patch('apps.subscription_portal.cancellation.cancel_payfast_subscription', return_value=False)
 def test_cancel_leaves_db_untouched_if_payfast_fails(mock_cancel, api_client, inverter_sub):
     token = issue_portal_token(EMAIL)
     ref = _get_ref(api_client, token, 'inverter')
@@ -334,7 +334,7 @@ def test_subscriptions_rejects_malformed_auth_header(api_client, inverter_sub):
 # ── cancel: already-inactive ─────────────────────────────────────────────────
 
 @pytest.mark.django_db
-@patch('apps.subscription_portal.views.cancel_payfast_subscription', return_value=True)
+@patch('apps.subscription_portal.cancellation.cancel_payfast_subscription', return_value=True)
 def test_cancel_already_inactive_is_400(mock_cancel, api_client, inverter_sub):
     inverter_sub.is_active = False
     inverter_sub.save(update_fields=['is_active'])

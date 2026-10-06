@@ -147,8 +147,10 @@ INSTALLED_APPS = [
     # Custom apps
     'apps.blog',
     'apps.chatbot',
+    'apps.client_portal',
     'apps.container_conversion',
     'apps.core',
+    'apps.accounts',
     'apps.fault_detection',
     'apps.quote_request',
     'apps.request_solar_cleaning',
@@ -289,14 +291,33 @@ SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 REST_FRAMEWORK = {
     "EXCEPTION_HANDLER": "utils.exceptions.custom_exception_handler",
     "DEFAULT_AUTHENTICATION_CLASSES": [
-        "rest_framework_simplejwt.authentication.JWTAuthentication",
+        # Simplejwt + a password-version check (apps.accounts.authentication).
+        "apps.accounts.authentication.DashboardJWTAuthentication",
     ],
+    # How many proxies (nginx) sit in front of Django. DRF then takes the
+    # client IP that nginx appended to X-Forwarded-For instead of trusting the
+    # whole header, so IP-keyed throttles (login / sign-in codes) can't be
+    # dodged by sending a fake X-Forwarded-For. Set DRF_NUM_PROXIES=0 if the
+    # API is ever served without a proxy.
+    "NUM_PROXIES": int(os.getenv("DRF_NUM_PROXIES", "1")),
     # Scoped rates for the public Manage-Subscriptions portal only (applied per
     # view via its own throttle classes — this does not throttle the rest of the
     # API). request: 5 per 30 min per email; verify: a tighter guess cap.
     "DEFAULT_THROTTLE_RATES": {
         "portal_otp_request": "5/30m",
         "portal_otp_verify": "10/30m",
+        # Client dashboard tickets and sites: writes per account.
+        "client_portal_ticket_create": "30/h",
+        "client_portal_site_write": "30/h",
+        "client_portal_message": "120/h",
+        # Dashboard accounts (apps.accounts): public endpoints per IP, anything
+        # that sends an email per target address, and password checks per account.
+        "accounts_ip": "30/15m",
+        "accounts_email": "5/30m",
+        "accounts_password": "10/15m",
+        # Staff/client dashboard password login: per IP and per username.
+        "dashboard_login_ip": "30/15m",
+        "dashboard_login_user": "10/15m",
         # Gas Guard email-code endpoints, keyed per email address: sending a
         # code (register / resend / password flows) vs checking one.
         "gg_code_send": "5/min",
@@ -488,6 +509,21 @@ EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD')
 EMAIL_RECIPIENT = os.getenv('EMAIL_RECIPIENT')
 
 
+# ====================== CACHE ======================
+# Throttle counters (login-code and password-login limits) live in the cache.
+# Point CACHE_REDIS_URL at Redis in production (e.g. redis://localhost:6379/1)
+# so every gunicorn worker shares one set of counters that survives restarts;
+# without it each process keeps its own in-memory counts (fine for local dev).
+CACHE_REDIS_URL = os.getenv('CACHE_REDIS_URL', '').strip()
+CACHES = {
+    'default': (
+        {'BACKEND': 'django.core.cache.backends.redis.RedisCache', 'LOCATION': CACHE_REDIS_URL}
+        if CACHE_REDIS_URL
+        else {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'}
+    )
+}
+
+
 # ====================== CELERY ======================
 CELERY_BROKER_URL = 'redis://localhost:6379/0'
 CELERY_RESULT_BACKEND = 'redis://localhost:6379/0'
@@ -498,7 +534,7 @@ CELERY_TIMEZONE = 'Africa/Johannesburg'   # ← Client timezone
 CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'
 
 # NOTE: Stope celery for local dev, when good to have
-# CELERY_TASK_ALWAYS_EAGER = os.getenv('CELERY_EAGER', 'True').strip().strip('\'"').lower() != 'false'
+CELERY_TASK_ALWAYS_EAGER = os.getenv('CELERY_EAGER', 'True').strip().strip('\'"').lower() != 'false'
 
 
 # ====================== HOME ASSISTANT / FAULT DETECTION ======================

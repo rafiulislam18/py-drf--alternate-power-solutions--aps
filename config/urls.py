@@ -46,6 +46,7 @@ urlpatterns = [
     # Config custom apps URLs
     path('blogs/', include('apps.blog.urls')),
     path('chatbot/', include('apps.chatbot.urls')),
+    path('client-portal/', include('apps.client_portal.urls')),
     path('container-conversion/', include('apps.container_conversion.urls')),
     path('quote-request/', include('apps.quote_request.urls')),
     path('request-solar-cleaning/', include('apps.request_solar_cleaning.urls')),
@@ -53,6 +54,7 @@ urlpatterns = [
     path('subscription-portal/', include('apps.subscription_portal.urls')),
     path('services-projects/', include('apps.services_and_projects.urls')),
     path('dashboard/', include('apps.solar_dashboard.urls')),
+    path('accounts/', include('apps.accounts.urls')),
     path('fault-detection/', include('apps.fault_detection.urls')),
     path('whatsapp/', include('apps.whatsapp_import.urls')),
     path('weight-scale/', include('apps.weight_scale.urls')),

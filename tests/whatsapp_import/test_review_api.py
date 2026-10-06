@@ -119,6 +119,38 @@ class TestReviewAPI:
         assert a.marked_as_job is False
         assert b.marked_as_job is True
 
+    def test_mark_single_clears_dismissed(self, admin_api_client):
+        m = _msg('Brian', 'was noise', dismissed=True)
+        res = admin_api_client.patch(f'/whatsapp/messages/{m.id}/mark/',
+                                     {'marked_as_job': True}, format='json')
+        assert res.status_code == 200
+        m.refresh_from_db()
+        assert m.marked_as_job is True
+        assert m.dismissed is False and m.dismissed_at is None
+
+    def test_bulk_mark_clears_dismissed(self, admin_api_client):
+        a = _msg('X', '1', dismissed=True)
+        # Legacy inconsistent row: marked AND dismissed — marking un-dismisses it.
+        b = _msg('X', '2', marked_as_job=True, dismissed=True)
+        res = admin_api_client.post('/whatsapp/messages/bulk-mark/',
+                                    {'ids': [a.id, b.id], 'marked_as_job': True},
+                                    format='json')
+        assert res.data['updated'] == 2
+        a.refresh_from_db(); b.refresh_from_db()
+        assert a.marked_as_job and not a.dismissed and a.dismissed_at is None
+        assert b.marked_as_job and not b.dismissed
+        # Both now count as jobs, none as "not a job".
+        counts = admin_api_client.get('/whatsapp/counts/').data
+        assert counts['marked'] == 2 and counts['dismissed'] == 0
+
+    def test_bulk_mark_leaves_exported_alone(self, admin_api_client):
+        m = _msg('X', '1', marked_as_job=True, exported_to_jobs_sheet=True, dismissed=True)
+        res = admin_api_client.post('/whatsapp/messages/bulk-mark/',
+                                    {'ids': [m.id], 'marked_as_job': True}, format='json')
+        assert res.data['updated'] == 0
+        m.refresh_from_db()
+        assert m.dismissed is True   # exported rows are locked
+
     def test_bulk_requires_ids(self, admin_api_client):
         res = admin_api_client.post('/whatsapp/messages/bulk-mark/',
                                     {'ids': [], 'marked_as_job': True}, format='json')
@@ -198,6 +230,13 @@ class TestDismiss:
         assert res.data['updated'] == 2
         assert WhatsAppMessage.objects.filter(dismissed=True).count() == 2
 
+    def test_bulk_dismiss_clears_job_flag(self, admin_api_client):
+        a = _msg('A', '1', marked_as_job=True)
+        admin_api_client.post('/whatsapp/messages/bulk-dismiss/',
+                              {'ids': [a.id], 'dismissed': True}, format='json')
+        a.refresh_from_db()
+        assert a.dismissed is True and a.marked_as_job is False
+
     def test_bulk_undismiss(self, admin_api_client):
         a = _msg('A', '1', dismissed=True)
         res = admin_api_client.post('/whatsapp/messages/bulk-dismiss/',
@@ -229,6 +268,16 @@ class TestStatusCounts:
         _msg('B', 'y', chat='House Nash')
         res = admin_api_client.get('/whatsapp/counts/?chat=House Nash')
         assert res.data['all'] == 1
+
+    def test_counts_respect_search(self, admin_api_client):
+        _msg('Brian', 'need a new inverter')
+        _msg('Office', 'inverter quote', marked_as_job=True)
+        _msg('Office', 'ok thanks')
+        _msg('Sipho', 'noise', dismissed=True)
+        res = admin_api_client.get('/whatsapp/counts/?search=inverter')
+        assert res.data == {'unmarked': 1, 'marked': 1, 'dismissed': 0, 'all': 2}
+        # Sender matches too, same as the list endpoint.
+        assert admin_api_client.get('/whatsapp/counts/?search=sipho').data['dismissed'] == 1
 
     def test_counts_forbidden_for_client(self, api_client, client_user):
         api_client.force_authenticate(user=client_user)
