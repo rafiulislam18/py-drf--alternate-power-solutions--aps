@@ -12,15 +12,24 @@ def _extract_detail(data):
         if 'detail' in data:
             return data['detail']
         # Field errors: {"name": ["This field is required."]} — take the first.
+        # Nested serializers ({"overrides": {"panels": [...]}}, lists of rows) are
+        # searched too, so the detail is always a sentence, never a dict.
         for value in data.values():
-            if isinstance(value, (list, tuple)) and value:
-                return value[0]
-            if value:
-                return value
+            found = _first_message(value)
+            if found:
+                return found
         return 'Invalid request.'
     if isinstance(data, (list, tuple)) and data:
-        return data[0]
+        return _first_message(data) or 'Invalid request.'
     return data
+
+
+def _first_message(value):
+    if isinstance(value, dict):
+        return next((m for m in map(_first_message, value.values()) if m), None)
+    if isinstance(value, (list, tuple)):
+        return next((m for m in map(_first_message, value) if m), None)
+    return value or None
 
 
 def custom_exception_handler(exc, context, keep_fields=False):

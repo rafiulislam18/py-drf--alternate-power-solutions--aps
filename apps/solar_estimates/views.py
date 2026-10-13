@@ -268,6 +268,12 @@ class EstimateConfirmView(_StaffView):
             inputs, edits = _validated({'inputs': est.inputs, 'edits': est.edits})
         if not inputs.get('estimate_date'):
             inputs['estimate_date'] = timezone.localdate().isoformat()
+        # A quotation goes to a named client at a site: both are required to confirm (not for drafts).
+        missing = {f: [msg] for f, msg in (('client_name', 'Enter the client / entity name.'),
+                                           ('site_address', 'Enter the site address.'))
+                   if not (inputs.get(f) or '').strip()}
+        if missing:
+            return Response({'detail': next(iter(missing.values()))[0], **missing}, status=status.HTTP_400_BAD_REQUEST)
         s = _settings_dict()
         typed = (edits.get('quote_no') or inputs.get('estimate_number') or '').strip()
         number = typed or proposed_number(inputs, s, exclude_pk=est.pk)
@@ -276,8 +282,9 @@ class EstimateConfirmView(_StaffView):
                             status=status.HTTP_400_BAD_REQUEST)
         result, doc = compute(inputs, edits, quote_number=number)
         blocking = [w for w in _warnings(inputs, result) if w['level'] == 'error']
-        if blocking:
-            return Response({'detail': blocking[0]['text']}, status=status.HTTP_400_BAD_REQUEST)
+        if blocking:  # no usable consumption — point at the readings
+            return Response({'detail': blocking[0]['text'], 'readings': [blocking[0]['text']]},
+                            status=status.HTTP_400_BAD_REQUEST)
         _store(est, inputs, edits, doc)
         est.number = number[:40]
         est.snapshot = doc

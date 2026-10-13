@@ -61,9 +61,12 @@ class EstimateInputSerializer(serializers.Serializer):
     existing_backup = _text(120)
     existing_backup_details = _text(300)
     backup_scope = serializers.ChoiceField(choices=['split', 'full'], default='split')
-    essential_share = serializers.FloatField(min_value=0.05, max_value=1, default=0.5)
+    # Shown as a percentage on the form, so the messages speak in percent.
+    essential_share = serializers.FloatField(min_value=0.05, max_value=1, default=0.5,
+                                             error_messages={'min_value': 'Enter a percentage between 5 and 100.', 'max_value': 'Enter a percentage between 5 and 100.'})
     export_to_grid = serializers.BooleanField(default=True)
-    daytime_share_override = serializers.FloatField(min_value=0.05, max_value=1, required=False, allow_null=True)
+    daytime_share_override = serializers.FloatField(min_value=0.05, max_value=1, required=False, allow_null=True,
+                                                    error_messages={'min_value': 'Enter a percentage between 5 and 100.', 'max_value': 'Enter a percentage between 5 and 100.'})
     site_notes = _text(2000)
     # 4. sizing overrides
     overrides = OverridesSerializer(required=False, default=dict)

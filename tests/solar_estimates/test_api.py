@@ -196,3 +196,21 @@ def test_the_command_keeps_details_the_workbook_leaves_blank(db):
     s = EstimateSettings.load()
     assert CatalogueItem.objects.count() >= 25 and len(s.yield_profile) == 12
     assert (s.company_vat_number, s.company_phone) == ('4480272055', '068 319 3323')   # blank cells don't wipe them
+
+
+def test_field_errors_name_the_field_in_form_units(staff, catalogue):
+    res = staff.post(f'{BASE}preview/', {'inputs': inputs(essential_share=0.03, max_panels=2)}, format='json')
+    assert res.status_code == 400
+    assert res.data['essential_share'] == ['Enter a percentage between 5 and 100.']   # not "0.05"
+    assert 'max_panels' in res.data
+
+
+def test_confirm_needs_client_and_site_address(staff, catalogue):
+    pk = staff.post(BASE, {'inputs': inputs(client_name='', site_address=' ')}, format='json').data['id']
+    res = staff.post(f'{BASE}{pk}/confirm/', {}, format='json')
+    assert res.status_code == 400
+    assert res.data['client_name'] == ['Enter the client / entity name.'] and 'site_address' in res.data
+    assert SolarEstimate.objects.get(pk=pk).status == 'draft'
+    # no consumption: the readings are named
+    pk = staff.post(BASE, {'inputs': inputs(readings=[])}, format='json').data['id']
+    assert 'readings' in staff.post(f'{BASE}{pk}/confirm/', {}, format='json').data
