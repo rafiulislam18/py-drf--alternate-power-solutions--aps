@@ -57,6 +57,7 @@ INSTALLED_APPS = [
     'apps.whatsapp_import',
     'apps.subscription_sheet',
     'apps.quote_sheet',
+    'apps.solar_estimates',
 
     # Gas Guard apps — required so config.urls (which eagerly wires the
     # /api/gas-guard/ includes) can be imported during URL resolution; without

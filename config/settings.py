@@ -164,6 +164,7 @@ INSTALLED_APPS = [
     'apps.whatsapp_import',
     'apps.subscription_sheet',
     'apps.quote_sheet',
+    'apps.solar_estimates',
 
     # ── Gas Guard apps (see the "GAS GUARD ONLY" settings block below) ──
     # Namespaced under apps/gas_guard/ with unique labels (gg_*) so their
@@ -683,6 +684,14 @@ APS_SUBSCRIPTION_SHEET_TOKEN = os.getenv('APS_SUBSCRIPTION_SHEET_TOKEN', WHATSAP
 # deploy a separate script.
 APS_QUOTE_SHEET_URL = os.getenv('APS_QUOTE_SHEET_URL', WHATSAPP_JOBS_SHEET_URL)
 APS_QUOTE_SHEET_TOKEN = os.getenv('APS_QUOTE_SHEET_TOKEN', WHATSAPP_JOBS_SHEET_TOKEN)
+
+
+# ====================== SOLAR ESTIMATES ======================
+# The proposal PDF is printed by headless Chromium (Playwright). Server setup
+# (browser for the gunicorn user + the Carlito font) is in
+# apps/solar_estimates/pdf.py. Optionally point this at an installed browser
+# instead, e.g. "msedge" or "chrome".
+ESTIMATE_PDF_BROWSER_CHANNEL = os.getenv('ESTIMATE_PDF_BROWSER_CHANNEL', '').strip()
 
 
 # AI Chatbot configurations (Grok)

@@ -1,0 +1,180 @@
+{# Version 1 (budget estimate, 10/2026) — kept only so estimates confirmed in that format still render. #}
+{% load estimate_tags %}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>APS Estimate {{ f.estimate_no }}</title>
+{# ONE stylesheet for the preview and the PDF — keep all estimate styling here. #}
+<style>
+  @page { size: A4; margin: 0; }
+  .est, .est * { box-sizing: border-box; }
+  .est { font-family: Arial, "Liberation Sans", "Helvetica Neue", Helvetica, sans-serif; color: #222; font-size: 7.4pt; line-height: 1.32; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .est .page { width: 210mm; height: 297mm; padding: 13mm 14.5mm 11mm; background: #fff; position: relative; overflow: hidden; break-after: page; page-break-after: always; }
+  .est .page:last-child { break-after: auto; page-break-after: auto; }
+  .est.preview .page { box-shadow: 0 2px 12px rgba(0,0,0,.18); margin: 0 auto 10mm; }
+
+  .est .head { display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 3.5mm; border-bottom: 0.6mm solid #e8590c; }
+  .est .head img { height: 19mm; width: auto; }
+  .est .head .co { text-align: right; }
+  .est .head .co h1 { margin: 2mm 0 2.4mm; font-size: 11pt; letter-spacing: .02em; }
+  .est .head .co p { margin: 0 0 4mm; font-size: 6.2pt; color: #666; }
+  .est .head .co .vat { margin: 0; }
+
+  .est h2.title { margin: 5mm 0 1mm; color: #e8590c; font-size: 12.5pt; }
+  .est .sub { margin: 0 0 5mm; font-style: italic; color: #666; font-size: 7pt; }
+
+  .est .details { display: grid; grid-template-columns: 26% 34% 13% 27%; row-gap: 1.2mm; margin-bottom: 5mm; font-size: 7.4pt; }
+  .est .details .lbl { color: #666; font-weight: bold; }
+
+  .est .bar { background: #e8590c; color: #fff; font-weight: bold; font-size: 8.6pt; padding: .6mm 1mm; margin: 0; text-transform: uppercase; }
+  .est .usage { display: grid; grid-template-columns: repeat(4, 1fr); width: 72%; text-align: center; }
+  .est .usage .k { font-size: 6.2pt; color: #666; padding-top: .6mm; }
+  .est .usage .v { background: #fde9d9; font-weight: bold; font-size: 11pt; padding: 1.6mm 0; }
+  .est .foot { margin: 1.6mm 0 5mm; font-style: italic; color: #666; font-size: 6.2pt; }
+
+  .est table { width: 100%; border-collapse: collapse; }
+  .est .sys td { padding: .55mm 0; border-bottom: .2mm solid #ccc; vertical-align: top; }
+  .est .sys td:first-child { width: 28%; font-weight: bold; }
+  .est .intro { margin: 0 0 5mm; font-size: 7.1pt; }
+
+  .est .opts { border: .2mm solid #bbb; }
+  .est .opts th { background: #1f2a37; color: #fff; font-size: 7.2pt; padding: 1.2mm 1mm; border: .2mm solid #bbb; line-height: 1.25; }
+  .est .opts td { border: .2mm solid #ccc; padding: .9mm .8mm; text-align: center; font-size: 6.8pt; }
+  .est .opts td:first-child { text-align: left; font-weight: bold; width: 22%; }
+  .est .opts tr.hl td:not(:first-child) { background: #fde9d9; font-weight: bold; }
+  .est .note { margin: 1mm 0 0; color: #777; font-size: 6pt; }
+  .est .note.it { margin-top: 5mm; font-style: italic; }
+
+  .est .monthly th { background: #1f2a37; color: #fff; font-size: 7.4pt; padding: .6mm 1mm; }
+  .est .monthly td { text-align: center; padding: .55mm 1mm; font-size: 7pt; }
+  .est .monthly tbody tr:nth-child(even) td { background: #f3f3f3; }
+  .est .monthly td.sv { font-weight: bold; }
+  .est .monthly tr.yr td { background: #fde9d9; font-weight: bold; }
+  .est .monthly tr.yr td:first-child { background: #fff; }
+  .est .chart { width: 66%; border: .2mm solid #ddd; margin: 0 0 9mm; padding: 1mm 1mm .5mm; }
+  .est .chart svg { display: block; width: 100%; height: auto; }
+  .est .chart .c1 { fill: #9c9ea8; } .est .chart .c2 { fill: #ea580c; }
+  .est .chart text { font-size: 9px; fill: #444; font-family: inherit; }
+  .est .legend { text-align: center; font-size: 6.4pt; color: #444; }
+  .est .legend i { display: inline-block; width: 2mm; height: 2mm; margin: 0 1mm 0 3mm; vertical-align: -.2mm; }
+
+  .est ul.b { list-style: none; margin: .6mm 0 5mm; padding: 0; font-size: 7pt; }
+  .est ul.b li::before { content: "•  "; }
+  .est h3.next { color: #b5410a; font-size: 8.4pt; margin: 6mm 0 1mm; }
+  .est .next-p { margin: 0 0 12mm; font-size: 7pt; }
+  .est .sign { display: grid; grid-template-columns: 26% 74%; font-size: 7pt; }
+  .est .sign .lbl { color: #888; }
+  .est .tag { position: absolute; left: 14.5mm; right: 14.5mm; bottom: 11mm; border-top: .5mm solid #e8590c; padding-top: 1mm; text-align: center; color: #888; font-size: 6pt; }
+
+  /* preview only: editable values and their pencils */
+  .est .ed { border-bottom: 1px dashed rgba(232,89,12,.55); }
+  .est .pen { display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; margin-left: 2px; padding: 0; vertical-align: middle; border: 1px solid #f4b48d; border-radius: 3px; background: #fff7f1; color: #c2410c; cursor: pointer; }
+  .est .pen:hover { background: #e8590c; color: #fff; }
+  .est th .pen { border-color: rgba(255,255,255,.5); background: transparent; color: #fff; }
+</style>
+</head>
+<body style="margin:0">
+<div class="est{% if editable %} preview{% endif %}">
+
+<section class="page">
+  <header class="head">
+    {% if logo %}<img src="{{ logo }}" alt="APS">{% else %}<span></span>{% endif %}
+    <div class="co">
+      <h1>{{ doc.header.company }}</h1>
+      <p>{{ doc.header.address }}</p>
+      <p class="vat">VAT Reg No: {% ed "vat_no" %}</p>
+    </div>
+  </header>
+
+  <h2 class="title">SOLAR &amp; BATTERY BACKUP – BUDGET ESTIMATE</h2>
+  <p class="sub">Indicative pricing to help you decide before a site assessment. Not a final quotation.</p>
+
+  <div class="details">
+    <span class="lbl">Estimate no.</span><span>{% ed "estimate_no" %}</span><span class="lbl">Client</span><span>{% ed "client" %}</span>
+    <span class="lbl">Date</span><span>{% ed "date" %}</span><span class="lbl">Contact</span><span>{% ed "contact" %}</span>
+    <span class="lbl">Valid until</span><span>{% ed "valid_until" %}</span><span class="lbl">Email</span><span>{% ed "email" %}</span>
+    <span class="lbl">Prepared by</span><span>{% ed "prepared_by" %}</span><span class="lbl">Site</span><span>{% ed "site" %}</span>
+  </div>
+
+  <h3 class="bar">1.&nbsp; Your current electricity use</h3>
+  <div class="usage">
+    <span class="k">Average daily use</span><span class="k">Average monthly use</span><span class="k">Annual electricity cost*</span><span class="k">Tariff</span>
+    <span class="v">{% ed "daily_use" %}</span><span class="v">{{ doc.usage.monthly }}</span><span class="v">{{ doc.usage.annual_cost }}</span><span class="v">{% ed "tariff" %}</span>
+  </div>
+  <p class="foot">{{ doc.usage.footnote }}</p>
+
+  <h3 class="bar">2.&nbsp; Recommended system</h3>
+  <table class="sys">
+    <tr><td>Solar panels</td><td>{% ed "panels" %}</td></tr>
+    <tr><td>Recommended approach</td><td>{% ed "approach" %}</td></tr>
+    <tr><td>Supply</td><td>{% ed "supply" %}</td></tr>
+    <tr><td>Estimated solar generation</td><td>{% ed "generation" %}</td></tr>
+    <tr><td>Share of your electricity from solar</td><td>{% ed "share" %}</td></tr>
+    <tr><td>Grid export</td><td>{% ed "grid_export" %}</td></tr>
+    <tr><td>Existing backup</td><td>{% ed "existing_backup" %}</td></tr>
+  </table>
+
+  <h3 class="bar">3.&nbsp; Your options</h3>
+  <p class="intro">{% ed "intro" %}</p>
+  <table class="opts">
+    <thead><tr><th></th>{% for o in doc.options %}<th>{% for line in o.heading %}{{ line }}{% if not forloop.last %}<br>{% endif %}{% endfor %}</th>{% endfor %}</tr></thead>
+    <tbody>
+      <tr><td>Inverter</td>{% for o in doc.options %}<td>{% ed o|opt_key:"inverter" %}</td>{% endfor %}</tr>
+      <tr><td>Battery</td>{% for o in doc.options %}<td>{% ed o|opt_key:"battery" %}</td>{% endfor %}</tr>
+      <tr><td>Solar panels</td>{% for o in doc.options %}<td>{% ed o|opt_key:"panels" %}</td>{% endfor %}</tr>
+      <tr><td>Total excl VAT</td>{% for o in doc.options %}<td>{% ed o|opt_key:"subtotal" o.subtotal %}</td>{% endfor %}</tr>
+      <tr><td>VAT @ 15%</td>{% for o in doc.options %}<td>{{ o.vat }}</td>{% endfor %}</tr>
+      <tr class="hl"><td>Total incl VAT</td>{% for o in doc.options %}<td>{{ o.total }}</td>{% endfor %}</tr>
+      <tr><td>Estimated annual saving*</td>{% for o in doc.options %}<td>{% ed o|opt_key:"saving" o.saving %}</td>{% endfor %}</tr>
+      <tr><td>Simple payback</td>{% for o in doc.options %}<td>{{ o.payback }}</td>{% endfor %}</tr>
+    </tbody>
+  </table>
+  <p class="note">{{ doc.tier_note }}</p>
+  <p class="note it">{{ doc.savings_note }}</p>
+</section>
+
+<section class="page">
+  <h3 class="bar">4.&nbsp; Estimated monthly savings</h3>
+  <table class="monthly">
+    <thead><tr><th>Month</th><th>Current bill (R)</th><th>With solar (R)</th><th>Saving (R)</th><th>Solar used (kWh)</th></tr></thead>
+    <tbody>
+      {% for m in doc.monthly %}<tr><td>{{ m.month }}</td><td>{{ m.current_text }}</td><td>{{ m.with_solar_text }}</td><td class="sv">{{ m.saving_text }}</td><td>{{ m.used_text }}</td></tr>{% endfor %}
+      <tr class="yr"><td>Year</td><td>{{ doc.year.current }}</td><td>{{ doc.year.with_solar }}</td><td>{{ doc.year.saving }}</td><td>{{ doc.year.used }}</td></tr>
+    </tbody>
+  </table>
+  {% with c=doc.chart %}
+  <div class="chart">
+    <svg viewBox="0 0 {{ c.width }} {{ c.height }}" role="img" aria-label="Current bill and bill with solar, by month">
+      {% for t in c.ticks %}<line x1="{{ c.left }}" x2="{{ c.plot_right }}" y1="{{ t.y }}" y2="{{ t.y }}" stroke="#e5e5e5" stroke-width="0.6"/><text x="{{ c.left|add:'-4' }}" y="{{ t.y }}" dy="3" text-anchor="end">{{ t.label }}</text>{% endfor %}
+      <line x1="{{ c.left }}" x2="{{ c.left }}" y1="8" y2="{{ c.base_y }}" stroke="#999" stroke-width="0.6"/>
+      <line x1="{{ c.left }}" x2="{{ c.plot_right }}" y1="{{ c.base_y }}" y2="{{ c.base_y }}" stroke="#999" stroke-width="0.6"/>
+      {% for b in c.bars %}<rect class="{{ b.cls }}" x="{{ b.x }}" y="{{ b.y }}" width="{{ b.w }}" height="{{ b.h }}"/>{% endfor %}
+      {% for l in c.labels %}<text x="{{ l.x }}" y="{{ c.height }}" dy="-6" text-anchor="middle">{{ l.text }}</text>{% endfor %}
+    </svg>
+    <div class="legend"><i style="background:#9c9ea8"></i>Current bill (R)<i style="background:#ea580c"></i>With solar (R)</div>
+  </div>
+  {% endwith %}
+
+  <h3 class="bar">5.&nbsp; Scope of work</h3>
+  <ul class="b">{% for x in doc.scope %}<li>{{ x }}</li>{% endfor %}</ul>
+  <h3 class="bar">6.&nbsp; Exclusions</h3>
+  <ul class="b">{% for x in doc.exclusions %}<li>{{ x }}</li>{% endfor %}</ul>
+  <h3 class="bar">7.&nbsp; Compliance</h3>
+  <ul class="b">{% for x in doc.compliance %}<li>{{ x }}</li>{% endfor %}</ul>
+  <h3 class="bar">8.&nbsp; Terms</h3>
+  <ul class="b">
+    <li>Validity: {{ doc.validity_days }} days from estimate date. Equipment prices are subject to supplier stock and exchange rates.</li>
+    <li>{{ doc.tail_terms.0 }}</li>
+    <li>{% ed "payment" %}</li>
+    <li>{{ doc.tail_terms.1 }}</li>
+  </ul>
+
+  <h3 class="next">NEXT STEP</h3>
+  <p class="next-p">{{ doc.next_step }}</p>
+  <div class="sign"><span class="lbl">Prepared by:</span><strong>{{ f.prepared_by }}</strong></div>
+  <div class="tag">{{ doc.tagline }}</div>
+</section>
+
+</div>
+</body>
+</html>
