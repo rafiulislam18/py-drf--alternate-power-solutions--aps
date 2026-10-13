@@ -97,6 +97,17 @@ class AdminScaleDeviceSerializer(serializers.ModelSerializer):
         # never set or changed by a normal write.
         read_only_fields = ['id', 'created_at', 'api_key']
 
+    # Cylinder profile: gas = scale weight − tare; % full = gas ÷ full gas.
+    def validate_tare_kg(self, value):
+        if not (0 <= value <= 200):
+            raise serializers.ValidationError('Tare must be between 0 and 200 kg.')
+        return value
+
+    def validate_full_gas_kg(self, value):
+        if not (0 < value <= 200):
+            raise serializers.ValidationError('Full gas must be more than 0 and at most 200 kg.')
+        return value
+
     def get_reading_count(self, obj):
         return obj.readings.count()
 

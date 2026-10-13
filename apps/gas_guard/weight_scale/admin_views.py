@@ -31,6 +31,13 @@ from .serializers import AdminScaleDeviceSerializer, WeightReadingSerializer
 logger = logging.getLogger(__name__)
 
 
+def _invalid(serializer):
+    """400 whose ``detail`` names the first problem (the panel shows ``detail`` only)."""
+    first = next(iter(serializer.errors.values()), ['Invalid input.'])
+    detail = first[0] if isinstance(first, list) and first else 'Invalid input.'
+    return Response({'detail': str(detail), 'errors': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+
+
 class AdminSiteListView(APIView):
     """
     GET  — every registered site, with its API key, owner and reading stats.
@@ -52,10 +59,7 @@ class AdminSiteListView(APIView):
     def post(self, request):
         serializer = AdminScaleDeviceSerializer(data=request.data)
         if not serializer.is_valid():
-            return Response(
-                {'detail': 'Invalid input.', 'errors': serializer.errors},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            return _invalid(serializer)
         device = serializer.save()
         logger.info(
             f'Site registered by {request.user.email}: '
@@ -90,10 +94,7 @@ class AdminSiteDetailView(APIView):
         device = self._get(pk)
         serializer = AdminScaleDeviceSerializer(device, data=request.data, partial=True)
         if not serializer.is_valid():
-            return Response(
-                {'detail': 'Invalid input.', 'errors': serializer.errors},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            return _invalid(serializer)
         serializer.save()
         logger.info(f'Site {pk} updated by {request.user.email}')
         return Response(AdminScaleDeviceSerializer(device).data)

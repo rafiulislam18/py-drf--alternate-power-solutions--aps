@@ -183,3 +183,41 @@ def test_daily_consumption_returns_window_length(device):
     assert len(series) == 7
     assert all('date' in d and 'kg' in d for d in series)
     assert sum(d['kg'] for d in series) >= 0
+
+
+# ── admin panel: cylinder profile (tare / full gas) ──────────────────────────
+
+@pytest.mark.django_db
+def test_admin_edits_tare_and_full_gas(staff_user, device):
+    from django.urls import reverse
+    url = reverse('admin-site-detail', args=[device.pk])
+    staff = auth_client_for(staff_user)
+    resp = staff.patch(url, {'tare_kg': '16.50', 'full_gas_kg': '19.00'}, format='json')
+    assert resp.status_code == 200, resp.data
+    assert (resp.data['tare_kg'], resp.data['full_gas_kg']) == ('16.50', '19.00')
+    device.refresh_from_db()
+    assert (device.tare_kg, device.full_gas_kg) == (Decimal('16.50'), Decimal('19.00'))
+    # the client's dashboard works from the new profile
+    payload = site_payload(device, include_estimate=False)
+    assert (payload['tareKg'], payload['fullGasKg']) == (16.5, 19.0)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize('body,message', [
+    ({'full_gas_kg': '0'}, 'Full gas must be more than 0'),
+    ({'tare_kg': '-1'}, 'Tare must be between 0 and 200'),
+    ({'tare_kg': 'abc'}, 'A valid number is required'),
+])
+def test_admin_cylinder_profile_is_validated(staff_user, device, body, message):
+    from django.urls import reverse
+    resp = auth_client_for(staff_user).patch(reverse('admin-site-detail', args=[device.pk]), body, format='json')
+    assert resp.status_code == 400 and message in resp.data['detail']
+    device.refresh_from_db()
+    assert (device.tare_kg, device.full_gas_kg) == (Decimal('15.00'), Decimal('48.00'))
+
+
+@pytest.mark.django_db
+def test_only_gas_guard_staff_edit_the_cylinder_profile(gg_client, device):
+    from django.urls import reverse
+    resp = gg_client.patch(reverse('admin-site-detail', args=[device.pk]), {'tare_kg': '1'}, format='json')
+    assert resp.status_code == 403
