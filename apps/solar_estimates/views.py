@@ -36,7 +36,7 @@ from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.core.permissions import IsDashboardAdmin
+from apps.staff.permissions import HasDashboardPerm
 from utils.exceptions import custom_exception_handler
 
 from . import document, engine
@@ -60,7 +60,7 @@ ROOF_MAX_PIXELS = 40_000_000  # refuse before decoding (memory); a roof screensh
 
 
 class _StaffView(APIView):
-    permission_classes = [IsDashboardAdmin]
+    permission_classes = [HasDashboardPerm]
 
     def get_exception_handler(self):
         return partial(custom_exception_handler, keep_fields=True)
@@ -151,6 +151,7 @@ def _roof_url(request, est):
 
 
 class PreviewView(_StaffView):
+    dashboard_perms = {'POST': 'estimates.view'}
     def post(self, request):
         inputs, edits = _validated(request.data)
         est = None
@@ -192,6 +193,7 @@ def _store(est, inputs, edits, doc):
 
 
 class EstimateListView(_StaffView):
+    dashboard_perms = {'GET': 'estimates.view', 'POST': 'estimates.create'}
     def get(self, request):
         qs = SolarEstimate.objects.select_related('created_by')
         q = (request.query_params.get('q') or '').strip()[:100]
@@ -226,6 +228,7 @@ def _draft_or_409(est):
 
 
 class EstimateDetailView(_StaffView):
+    dashboard_perms = {'GET': 'estimates.view', 'PATCH': 'estimates.edit', 'DELETE': 'estimates.delete'}
     def get(self, request, pk):
         return Response(_detail(request, get_object_or_404(SolarEstimate, pk=pk)))
 
@@ -248,6 +251,7 @@ class EstimateDetailView(_StaffView):
 
 
 class EstimateConfirmView(_StaffView):
+    dashboard_perms = {'POST': 'estimates.confirm'}
     def post(self, request, pk):
         for attempt in range(3):  # a number taken at the same moment by someone else → take the next one
             try:
@@ -295,6 +299,7 @@ class EstimateConfirmView(_StaffView):
 
 
 class EstimateReopenView(_StaffView):
+    dashboard_perms = {'POST': 'estimates.edit'}
     def post(self, request, pk):
         est = get_object_or_404(SolarEstimate, pk=pk)
         est.status, est.snapshot, est.issued_at = SolarEstimate.Status.DRAFT, None, None
@@ -313,6 +318,7 @@ def pdf_filename(est):
 
 
 class EstimatePdfView(_StaffView):
+    dashboard_perms = {'GET': 'estimates.view'}
     def get(self, request, pk):
         est = get_object_or_404(SolarEstimate, pk=pk)
         if est.status != SolarEstimate.Status.ISSUED or not est.snapshot:
@@ -330,6 +336,7 @@ class EstimatePdfView(_StaffView):
 
 
 class RoofImageView(_StaffView):
+    dashboard_perms = {'POST': 'estimates.edit', 'DELETE': 'estimates.edit'}
     parser_classes = [MultiPartParser, FormParser]
 
     def post(self, request, pk):
@@ -370,6 +377,7 @@ class RoofImageView(_StaffView):
 
 
 class SettingsView(_StaffView):
+    dashboard_perms = {'GET': 'estimates.view', 'PUT': 'estimates.settings'}
     def get(self, request):
         obj = EstimateSettings.load()
         return Response({
@@ -387,6 +395,7 @@ class SettingsView(_StaffView):
 
 
 class CatalogueCreateView(_StaffView):
+    dashboard_perms = {'POST': 'estimates.settings'}
     def post(self, request):
         ser = CatalogueItemSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
@@ -401,6 +410,7 @@ class CatalogueCreateView(_StaffView):
 
 
 class CatalogueDetailView(_StaffView):
+    dashboard_perms = {'PATCH': 'estimates.settings', 'DELETE': 'estimates.settings'}
     def patch(self, request, pk):
         ser = CatalogueItemSerializer(get_object_or_404(CatalogueItem, pk=pk), data=request.data, partial=True)
         ser.is_valid(raise_exception=True)

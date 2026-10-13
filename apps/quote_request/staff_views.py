@@ -28,7 +28,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.container_conversion.models import ServiceRequest
-from apps.core.permissions import IsDashboardAdmin
+from apps.staff.permissions import HasDashboardPerm
 
 from .models import QuoteRequest, SolarQuoteDetails
 
@@ -114,7 +114,8 @@ def _int(value, default=1):
 
 
 class StaffQuoteListView(APIView):
-    permission_classes = [IsDashboardAdmin]
+    permission_classes = [HasDashboardPerm]
+    dashboard_perms = {'GET': 'quotes.view'}
 
     def get(self, request):
         p = request.query_params
@@ -214,7 +215,8 @@ def _container_detail(obj):
 
 
 class StaffQuoteDetailView(APIView):
-    permission_classes = [IsDashboardAdmin]
+    permission_classes = [HasDashboardPerm]
+    dashboard_perms = {'GET': 'quotes.view'}
 
     def get(self, request, kind, pk):
         if kind == 'container':

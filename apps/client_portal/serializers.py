@@ -214,7 +214,8 @@ class TicketCreateSerializer(serializers.ModelSerializer):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        client = self.context['request'].user
+        # The client raising it — or, when staff raise it for a client, that client.
+        client = self.context.get('client') or self.context['request'].user
         # Only this client's live sites are choosable — another client's site
         # id is rejected as "invalid pk", so nothing leaks about it.
         self.fields['site'].queryset = Site.objects.filter(client=client, is_active=True)

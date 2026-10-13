@@ -7,6 +7,7 @@ from django.utils.text import slugify
 from rest_framework import serializers
 
 from apps.core.roles import get_role
+from apps.staff.access import permissions_for
 
 from .login import identifier_taken
 
@@ -138,6 +139,8 @@ class AccountSerializer(serializers.Serializer):
             'email_verified': bool(profile.email_verified) if profile else bool(user.email),
             'pending_email': profile.pending_email if profile else '',
             'role': get_role(user),
+            'is_superuser': bool(user.is_superuser and get_role(user) == 'admin'),
+            'permissions': permissions_for(user),
             'company_name': profile.company_name if profile else '',
             'phone': profile.phone if profile else '',
             'image': profile.image.url if profile and profile.image else None,

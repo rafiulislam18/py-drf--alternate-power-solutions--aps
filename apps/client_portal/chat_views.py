@@ -29,7 +29,8 @@ from django.utils import timezone
 from rest_framework import generics, status
 from rest_framework.response import Response
 
-from apps.core.permissions import IsDashboardAdmin, IsDashboardClient
+from apps.core.permissions import IsDashboardClient
+from apps.staff.permissions import HasDashboardPerm
 from utils.exceptions import custom_exception_handler
 
 from . import presence
@@ -129,7 +130,8 @@ class ClientTicketMessagesView(_ChatView):
 
 class StaffTicketMessagesView(_ChatView):
     viewer_role = 'staff'
-    permission_classes = [IsDashboardAdmin]
+    permission_classes = [HasDashboardPerm]
+    dashboard_perms = {'GET': 'tickets.chat_view', 'POST': 'tickets.chat_send'}
 
     def ticket_queryset(self):
         return Ticket.objects.all()

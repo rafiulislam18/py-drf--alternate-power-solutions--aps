@@ -18,6 +18,8 @@ def email_can_sign_in(user):
         profile = user.client_profile
     except ClientProfile.DoesNotExist:
         return False
+    if profile.role == 'admin':  # staff accounts: a superuser set the address
+        return True
     return profile.email_verified or (profile.self_registered and not profile.verified_email)
 
 

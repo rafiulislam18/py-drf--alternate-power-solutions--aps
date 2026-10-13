@@ -3,7 +3,7 @@ from collections import Counter
 from datetime import date, timedelta
 from decimal import Decimal
 
-from django.contrib.auth.models import User
+from django.contrib.auth.models import User, update_last_login
 from django.db.models import Q, Min, Max
 from rest_framework.views import APIView
 from rest_framework import status
@@ -16,6 +16,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from apps.core.models import ClientProfile
 from apps.core.roles import get_role
+from apps.staff.access import denied_message, has_perm, permissions_for
 from .models import SolarReport, SiteData, Site
 from apps.accounts.authentication import DashboardTokenRefreshSerializer
 from apps.accounts.login import resolve_login_identifier
@@ -75,7 +76,11 @@ class DashboardTokenObtainPairSerializer(TokenObtainPairSerializer):
                 f"Click it, then sign in."
             )
 
+        update_last_login(None, user)  # "last signed in" on the Staff accounts page
         data['role'] = get_role(user)
+        # What this staff member may do on the dashboard (superusers: everything).
+        data['is_superuser'] = bool(user.is_superuser and data['role'] == 'admin')
+        data['permissions'] = permissions_for(user)
         data['user_id'] = user.id
         data['username'] = user.username
         data['email'] = user.email
@@ -91,6 +96,18 @@ class DashboardTokenObtainPairView(TokenObtainPairView):
 
 class DashboardTokenRefreshView(TokenRefreshView):
     serializer_class = DashboardTokenRefreshSerializer
+
+
+def _forbid(request, *codes, any_of=False):
+    """None when the signed-in staff member holds the permission(s) (all of
+    them, or one with ``any_of``); otherwise the 403 to return."""
+    if get_role(request.user) != 'admin':
+        return Response({'error': 'Forbidden', 'detail': 'Forbidden'}, status=status.HTTP_403_FORBIDDEN)
+    held = [code for code in codes if has_perm(request.user, code)]
+    if (bool(held) if any_of else len(held) == len(codes)):
+        return None
+    message = denied_message(next(code for code in codes if code not in held))
+    return Response({'error': message, 'detail': message}, status=status.HTTP_403_FORBIDDEN)
 
 
 class ReportPagination(PageNumberPagination):
@@ -130,6 +147,8 @@ class SolarReportListCreateView(APIView):
         role = get_role(request.user)
         if role == 'client':
             qs = qs.filter(client=request.user)
+        elif (denied := _forbid(request, 'reports.view')):
+            return denied
 
         if search:
             qs = qs.filter(
@@ -143,8 +162,8 @@ class SolarReportListCreateView(APIView):
         return paginator.get_paginated_response(serializer.data)
 
     def post(self, request):
-        if get_role(request.user) != 'admin':
-            return Response({'error': 'Forbidden'}, status=status.HTTP_403_FORBIDDEN)
+        if (denied := _forbid(request, 'reports.create')):
+            return denied
         serializer = SolarReportSerializer(data=request.data)
         if serializer.is_valid():
             serializer.save()
@@ -175,8 +194,8 @@ class SolarReportDetailView(APIView):
         report = self.get_object(uuid)
         if report is None:
             return Response({'error': 'Report not found'}, status=status.HTTP_404_NOT_FOUND)
-        if get_role(request.user) != 'admin':
-            return Response({'error': 'Forbidden'}, status=status.HTTP_403_FORBIDDEN)
+        if (denied := _forbid(request, 'reports.edit')):
+            return denied
         serializer = SolarReportSerializer(report, data=request.data)
         if serializer.is_valid():
             serializer.save()
@@ -187,8 +206,8 @@ class SolarReportDetailView(APIView):
         report = self.get_object(uuid)
         if report is None:
             return Response({'error': 'Report not found'}, status=status.HTTP_404_NOT_FOUND)
-        if get_role(request.user) != 'admin':
-            return Response({'error': 'Forbidden'}, status=status.HTTP_403_FORBIDDEN)
+        if (denied := _forbid(request, 'reports.delete')):
+            return denied
         report.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -198,8 +217,11 @@ class ClientListView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        if get_role(request.user) != 'admin':
-            return Response({'error': 'Forbidden'}, status=status.HTTP_403_FORBIDDEN)
+        # Also the client picker of the report form, the reports list filter, the
+        # tickets inbox's client filter and a staff-raised ticket.
+        if (denied := _forbid(request, 'clients.view', 'reports.view', 'reports.create', 'reports.edit',
+                              'tickets.view', 'tickets.create', any_of=True)):
+            return denied
         clients = User.objects.filter(
             client_profile__role='client'
         ).select_related('client_profile').order_by('client_profile__company_name', 'username')
@@ -212,8 +234,8 @@ class CreateClientView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        if get_role(request.user) != 'admin':
-            return Response({'error': 'Forbidden'}, status=status.HTTP_403_FORBIDDEN)
+        if (denied := _forbid(request, 'clients.create')):
+            return denied
         serializer = CreateClientUserSerializer(data=request.data)
         if serializer.is_valid():
             user = serializer.save()
@@ -236,8 +258,10 @@ class SiteListCreateView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        if get_role(request.user) != 'admin':
-            return Response({'error': 'Forbidden'}, status=status.HTTP_403_FORBIDDEN)
+        # Also the site list of the report form and of a staff-raised ticket.
+        if (denied := _forbid(request, 'clients.view', 'reports.view', 'reports.create', 'reports.edit',
+                              'tickets.create', any_of=True)):
+            return denied
 
         qs = Site.objects.select_related('client__client_profile')
         client_id = request.query_params.get('client_id')
@@ -251,8 +275,8 @@ class SiteListCreateView(APIView):
         return Response(serializer.data)
 
     def post(self, request):
-        if get_role(request.user) != 'admin':
-            return Response({'error': 'Forbidden'}, status=status.HTTP_403_FORBIDDEN)
+        if (denied := _forbid(request, 'clients.edit')):
+            return denied
         serializer = SiteSerializer(data=request.data, context={'request': request})
         if serializer.is_valid():
             serializer.save()
@@ -276,8 +300,8 @@ class SiteDetailView(APIView):
             return None
 
     def patch(self, request, pk):
-        if get_role(request.user) != 'admin':
-            return Response({'error': 'Forbidden'}, status=status.HTTP_403_FORBIDDEN)
+        if (denied := _forbid(request, 'clients.edit')):
+            return denied
         site = self.get_object(pk)
         if site is None:
             return Response({'error': 'Site not found'}, status=status.HTTP_404_NOT_FOUND)
@@ -289,8 +313,8 @@ class SiteDetailView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def delete(self, request, pk):
-        if get_role(request.user) != 'admin':
-            return Response({'error': 'Forbidden'}, status=status.HTTP_403_FORBIDDEN)
+        if (denied := _forbid(request, 'clients.delete')):
+            return denied
         site = self.get_object(pk)
         if site is None:
             return Response({'error': 'Site not found'}, status=status.HTTP_404_NOT_FOUND)

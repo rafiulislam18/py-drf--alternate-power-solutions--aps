@@ -333,28 +333,7 @@ class TicketListCreateView(_ClientView, generics.ListCreateAPIView):
             return Response({'files': exc.detail}, status=status.HTTP_400_BAD_REQUEST)
 
         client = request.user
-        emergency = serializer.validated_data.get('urgency') == Ticket.Urgency.EMERGENCY
-        with transaction.atomic():
-            # Emergencies are emailed at once; anything else waits for the
-            # 30-minute new-ticket job (apps.client_portal.alerts).
-            ticket = serializer.save(
-                client=client,
-                team_alert_pending=not emergency,
-                client_alert_pending=not emergency,
-            )
-            for upload, content_type in files:
-                TicketAttachment.objects.create(
-                    ticket=ticket,
-                    file=upload,
-                    original_name=upload.name[:255],
-                    content_type=content_type,
-                    size=upload.size,
-                )
-
-            if emergency:
-                transaction.on_commit(lambda: _notify_new_ticket(ticket.pk))
-            ticket_changed(ticket, 'new')  # staff lists show it straight away
-
+        ticket = raise_ticket(serializer, client, files)
         ticket = self.get_queryset().get(pk=ticket.pk)
         logger.info(f'{client.username} raised {ticket.reference} ({ticket.urgency})')
         return Response(TicketSerializer(ticket).data, status=status.HTTP_201_CREATED)
@@ -370,6 +349,33 @@ class ClientTicketDetailView(_ClientView, generics.RetrieveAPIView):
             Ticket.objects.filter(client=self.request.user).select_related('site').prefetch_related('attachments'),
             'client',
         )
+
+
+def raise_ticket(serializer, client, files):
+    """Save a validated new ticket for ``client`` with its attachments, and set
+    off its alerts. Used by the client's form and by staff raising one for a client."""
+    emergency = serializer.validated_data.get('urgency') == Ticket.Urgency.EMERGENCY
+    with transaction.atomic():
+        # Emergencies are emailed at once; anything else waits for the
+        # 30-minute new-ticket job (apps.client_portal.alerts).
+        ticket = serializer.save(
+            client=client,
+            team_alert_pending=not emergency,
+            client_alert_pending=not emergency,
+        )
+        for upload, content_type in files:
+            TicketAttachment.objects.create(
+                ticket=ticket,
+                file=upload,
+                original_name=upload.name[:255],
+                content_type=content_type,
+                size=upload.size,
+            )
+
+        if emergency:
+            transaction.on_commit(lambda: _notify_new_ticket(ticket.pk))
+        ticket_changed(ticket, 'new')  # staff lists show it straight away
+    return ticket
 
 
 def _notify_new_ticket(ticket_pk):

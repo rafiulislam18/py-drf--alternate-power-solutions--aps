@@ -20,6 +20,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.core.roles import get_role
+from apps.staff.access import denied_message, has_perm
 from .jobs_export import (
     ExportInProgress, JobsSheetConfigError, export_marked_jobs, pending_jobs_qs,
 )
@@ -36,10 +37,12 @@ class MessagePagination(PageNumberPagination):
     max_page_size = 200
 
 
-def _require_admin(request):
-    """Return None if admin, else a 403 Response."""
+def _require(request, code):
+    """None if the signed-in staff member holds ``code``, else a 403 Response."""
     if get_role(request.user) != 'admin':
         return Response({'detail': 'Forbidden'}, status=status.HTTP_403_FORBIDDEN)
+    if not has_perm(request.user, code):
+        return Response({'detail': denied_message(code)}, status=status.HTTP_403_FORBIDDEN)
     return None
 
 
@@ -74,7 +77,7 @@ class WhatsAppMessageListView(APIView):
     pagination_class = MessagePagination
 
     def get(self, request):
-        forbidden = _require_admin(request)
+        forbidden = _require(request, 'whatsapp.view')
         if forbidden:
             return forbidden
 
@@ -101,7 +104,7 @@ class WhatsAppStatusCountsView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        forbidden = _require_admin(request)
+        forbidden = _require(request, 'whatsapp.view')
         if forbidden:
             return forbidden
 
@@ -120,7 +123,7 @@ class WhatsAppChatListView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        forbidden = _require_admin(request)
+        forbidden = _require(request, 'whatsapp.view')
         if forbidden:
             return forbidden
 
@@ -139,7 +142,7 @@ class WhatsAppMessageMarkView(APIView):
     permission_classes = [IsAuthenticated]
 
     def patch(self, request, pk):
-        forbidden = _require_admin(request)
+        forbidden = _require(request, 'whatsapp.edit')
         if forbidden:
             return forbidden
 
@@ -160,7 +163,7 @@ class WhatsAppMessageBulkMarkView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        forbidden = _require_admin(request)
+        forbidden = _require(request, 'whatsapp.edit')
         if forbidden:
             return forbidden
 
@@ -194,7 +197,7 @@ class WhatsAppMessageDismissView(APIView):
     permission_classes = [IsAuthenticated]
 
     def patch(self, request, pk):
-        forbidden = _require_admin(request)
+        forbidden = _require(request, 'whatsapp.edit')
         if forbidden:
             return forbidden
 
@@ -227,7 +230,7 @@ class WhatsAppMessageBulkDismissView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        forbidden = _require_admin(request)
+        forbidden = _require(request, 'whatsapp.edit')
         if forbidden:
             return forbidden
 
@@ -260,13 +263,13 @@ class WhatsAppJobsExportView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        forbidden = _require_admin(request)
+        forbidden = _require(request, 'whatsapp.view')
         if forbidden:
             return forbidden
         return Response({'pending': pending_jobs_qs().count()})
 
     def post(self, request):
-        forbidden = _require_admin(request)
+        forbidden = _require(request, 'whatsapp.export')
         if forbidden:
             return forbidden
         try:

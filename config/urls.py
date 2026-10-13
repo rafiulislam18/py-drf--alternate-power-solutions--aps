@@ -50,6 +50,7 @@ urlpatterns = [
     path('container-conversion/', include('apps.container_conversion.urls')),
     path('quote-request/', include('apps.quote_request.urls')),
     path('solar-estimates/', include('apps.solar_estimates.urls')),
+    path('staff/', include('apps.staff.urls')),
     path('request-solar-cleaning/', include('apps.request_solar_cleaning.urls')),
     path('subscription/', include('apps.subscription.urls')),
     path('subscription-portal/', include('apps.subscription_portal.urls')),

@@ -7,7 +7,7 @@ from rest_framework.response import Response
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from apps.core.content_files import delete_unused_files, file_names
-from apps.core.permissions import IsDashboardAdmin
+from apps.staff.permissions import HasDashboardPerm
 from utils.exceptions import custom_exception_handler
 from .models import *
 from .serializers import *
@@ -76,7 +76,7 @@ class ProjectDetailsAPIView(APIView):
 # ---------------------------------------------------------------------------
 
 class _AdminContentMixin:
-    permission_classes = [IsAuthenticated, IsDashboardAdmin]
+    permission_classes = [IsAuthenticated, HasDashboardPerm]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
     # Content lists are small; return them whole (no settings-level paging).
     pagination_class = None
@@ -87,6 +87,7 @@ class _AdminContentMixin:
 
 
 class AdminServiceListCreateView(_AdminContentMixin, generics.ListCreateAPIView):
+    dashboard_section = 'services'
     serializer_class = AdminServiceSerializer
     queryset = Service.objects.annotate(num_projects=Count('projects')).order_by('-appreciation_mark', 'title')
 
@@ -96,6 +97,7 @@ PROJECT_IMAGE_FIELDS = ['image', 'image_2', 'image_3']
 
 class AdminServiceDetailView(_AdminContentMixin, generics.RetrieveUpdateDestroyAPIView):
     """Deleting a service also deletes its projects (FK cascade)."""
+    dashboard_section = 'services'
     serializer_class = AdminServiceSerializer
     queryset = Service.objects.annotate(num_projects=Count('projects'))
 
@@ -115,6 +117,7 @@ class AdminServiceDetailView(_AdminContentMixin, generics.RetrieveUpdateDestroyA
 
 
 class AdminProjectListCreateView(_AdminContentMixin, generics.ListCreateAPIView):
+    dashboard_section = 'projects'
     serializer_class = AdminProjectSerializer
 
     def get_queryset(self):
@@ -126,6 +129,7 @@ class AdminProjectListCreateView(_AdminContentMixin, generics.ListCreateAPIView)
 
 
 class AdminProjectDetailView(_AdminContentMixin, generics.RetrieveUpdateDestroyAPIView):
+    dashboard_section = 'projects'
     serializer_class = AdminProjectSerializer
     queryset = Project.objects.select_related('service')
 

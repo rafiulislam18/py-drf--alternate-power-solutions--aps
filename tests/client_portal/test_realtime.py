@@ -29,7 +29,8 @@ ORIGIN = [(b'origin', b'http://localhost:5173')]
 
 @pytest.fixture
 def staff_user(db):
-    return User.objects.create_user('ops', password='Sunny-Days-2026', is_staff=True, first_name='Thabo')
+    return User.objects.create_user('ops', password='Sunny-Days-2026', is_staff=True, is_superuser=True,
+                                    first_name='Thabo')  # full staff access
 
 
 @pytest.fixture

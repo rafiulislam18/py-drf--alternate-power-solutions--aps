@@ -7,7 +7,7 @@ from rest_framework.response import Response
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from apps.core.content_files import delete_unused_files, file_names
-from apps.core.permissions import IsDashboardAdmin
+from apps.staff.permissions import HasDashboardPerm
 from utils.exceptions import custom_exception_handler
 from .models import BlogCategory, Blog
 from .serializers import (
@@ -56,7 +56,8 @@ class BlogDetailsAPIView(APIView):
 # ---------------------------------------------------------------------------
 
 class _AdminContentMixin:
-    permission_classes = [IsAuthenticated, IsDashboardAdmin]
+    permission_classes = [IsAuthenticated, HasDashboardPerm]
+    dashboard_section = 'blogs'  # posts and categories alike
     parser_classes = [MultiPartParser, FormParser, JSONParser]
     # Content lists are small; return them whole (no settings-level paging).
     pagination_class = None

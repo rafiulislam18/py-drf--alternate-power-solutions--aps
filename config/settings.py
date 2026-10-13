@@ -165,6 +165,7 @@ INSTALLED_APPS = [
     'apps.subscription_sheet',
     'apps.quote_sheet',
     'apps.solar_estimates',
+    'apps.staff',
 
     # ── Gas Guard apps (see the "GAS GUARD ONLY" settings block below) ──
     # Namespaced under apps/gas_guard/ with unique labels (gg_*) so their

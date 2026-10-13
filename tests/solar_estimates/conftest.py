@@ -59,7 +59,7 @@ def catalogue(db):
 @pytest.fixture
 def staff(db):
     api = APIClient()
-    api.force_authenticate(User.objects.create_user('ops', is_staff=True))
+    api.force_authenticate(User.objects.create_user('ops', is_staff=True, is_superuser=True))  # full staff access
     return api
 
 
