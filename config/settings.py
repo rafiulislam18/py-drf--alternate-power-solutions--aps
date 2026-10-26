@@ -687,6 +687,18 @@ APS_QUOTE_SHEET_URL = os.getenv('APS_QUOTE_SHEET_URL', WHATSAPP_JOBS_SHEET_URL)
 APS_QUOTE_SHEET_TOKEN = os.getenv('APS_QUOTE_SHEET_TOKEN', WHATSAPP_JOBS_SHEET_TOKEN)
 
 
+# ====================== WEEKLY SOLAR REPORT (ENERGITRACK) ======================
+# Every Monday 01:00 SAST we pull the Sunday-to-Sunday week that just ended from
+# EnergiTrack and save ONE solar report covering all Urban Growth sites
+# (apps/solar_dashboard/weekly_report.py). EnergiTrack serves API clients
+# through its MCP server with a read-only personal token (EnergiTrack →
+# Data Connections → Agent connections → personal token).
+SOLAR_REPORT_CLIENT_USERNAME = os.getenv('SOLAR_REPORT_CLIENT_USERNAME', 'urban-growth')
+ENERGITRACK_MCP_URL = os.getenv('ENERGITRACK_MCP_URL', 'https://tars.energitrack.io/mcp').strip()
+ENERGITRACK_TOKEN = os.getenv('ENERGITRACK_TOKEN', '').strip()
+ENERGITRACK_TIMEOUT = int(os.getenv('ENERGITRACK_TIMEOUT', '60'))  # seconds per request
+
+
 # ====================== SOLAR ESTIMATES ======================
 # The proposal PDF is printed by headless Chromium (Playwright). Server setup
 # (browser for the gunicorn user + the Carlito font) is in

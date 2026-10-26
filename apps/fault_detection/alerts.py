@@ -25,6 +25,7 @@ BRAND = '#D96F32'
 BG = '#f8f9fa'
 OK_GREEN = '#2e7d32'
 ALERT_RED = '#c0392b'
+WARN_AMBER = '#e67e22'
 
 
 def _pickup_url(context):
@@ -87,6 +88,8 @@ def _build_email_html(context):
     """Route to the right email body based on the alert kind."""
     if context.get('kind') == 'pickup_confirmation':
         return _build_pickup_email_html(context)
+    if context.get('kind') == 'solar_report':
+        return _build_report_email_html(context)
     if context.get('kind') == 'charge_behaviour':
         return _build_behaviour_email_html(context)
     return _build_soc_email_html(context)
@@ -96,6 +99,8 @@ def _build_telegram_html(context):
     """Route to the right Telegram body based on the alert kind."""
     if context.get('kind') == 'pickup_confirmation':
         return _build_pickup_telegram_html(context)
+    if context.get('kind') == 'solar_report':
+        return _build_report_telegram_html(context)
     if context.get('kind') == 'charge_behaviour':
         return _build_behaviour_telegram_html(context)
     return _build_soc_telegram_html(context)
@@ -314,6 +319,62 @@ def _build_behaviour_telegram_html(context):
     ]
     if is_fault:
         lines.extend(_pickup_cta_telegram(_pickup_url(context)))
+    return "\n".join(lines)
+
+
+_REPORT_SOURCE_LABELS = {
+    'pulled': 'pulled from EnergiTrack',
+    'failed': 'empty (EnergiTrack failed)',
+}
+
+
+def _build_report_email_html(context):
+    """Branded email for the weekly HA solar report (created with warnings / not created)."""
+    title = html.escape(context.get('title', 'Weekly Solar Report'))
+    created = bool(context.get('report_url'))
+    warnings = ''.join(
+        f'<li style="margin:6px 0;">{html.escape(str(w))}</li>' for w in context.get('warnings', [])
+    )
+    sites = ''.join(
+        f'<p style="margin:4px 0;"><strong style="color:{BRAND};">{html.escape(name)}:</strong> '
+        f'{html.escape(_REPORT_SOURCE_LABELS.get(src, src))}</p>'
+        for name, src in context.get('sites', [])
+    )
+    period = context.get('period')
+    body = f"""
+                <p style="color:#333;">The automatic weekly solar report needs a look:</p>
+                <ul style="color:#333; padding-left:20px;">{warnings}</ul>
+                <div style="margin-top:16px; padding:12px 15px; background-color:{BG}; border-left:4px solid {BRAND};">
+                    {f'<p style="margin:4px 0;"><strong style="color:{BRAND};">Period:</strong> {html.escape(period)}</p>' if period else ''}
+                    {sites}
+                </div>
+    """
+    if created:
+        url = html.escape(context['report_url'])
+        body += f"""
+                <div style="text-align:center; margin:24px 0 8px;">
+                    <a href="{url}"
+                       style="display:inline-block; background-color:{BRAND}; color:#ffffff;
+                              text-decoration:none; padding:12px 28px; border-radius:24px;
+                              font-weight:bold; letter-spacing:0.5px;">
+                        Open Report
+                    </a>
+                </div>
+        """
+    accent = WARN_AMBER if created else ALERT_RED
+    return _email_shell(accent, 'WARNING' if created else 'FAILED', title, body)
+
+
+def _build_report_telegram_html(context):
+    """Telegram message for the weekly HA solar report (created with warnings / not created)."""
+    created = bool(context.get('report_url'))
+    icon = "🟠" if created else "🔴"
+    lines = [f"{icon} <b>{html.escape(context.get('title', 'Weekly Solar Report').upper())}</b>", ""]
+    if context.get('period'):
+        lines += [f"Period: <b>{html.escape(context['period'])}</b>", ""]
+    lines += [f"• {html.escape(str(w))}" for w in context.get('warnings', [])]
+    if created:
+        lines += ["", f"Report: {html.escape(context['report_url'])}"]
     return "\n".join(lines)
 
 
