@@ -1,9 +1,10 @@
 """
 Aggregate URL configuration for all Gas Guard sub-apps.
 
-Mounted by the project's ``config/urls.py`` under the ``api/gas-guard/`` prefix,
-so e.g. the login endpoint is ``/api/gas-guard/users/login/``. This keeps every
-Gas Guard route namespaced away from the APS website's own API routes.
+Mounted by the project's ``config/urls.py`` under the ``gas-guard/`` prefix,
+so e.g. the login endpoint is ``/gas-guard/users/login/`` (in production nginx
+serves the API under ``/api/``, making it ``/api/gas-guard/users/login/``). This
+keeps every Gas Guard route namespaced away from the APS website's own API routes.
 """
 from django.urls import include, path
 

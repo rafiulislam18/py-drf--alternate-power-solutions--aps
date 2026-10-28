@@ -14,10 +14,12 @@ dashboard's "Client tickets" pages. Staff only, per permission
 - ``PATCH staff/tickets/<id>/``    → {status?, technician_name?, notify_client?}.
   A status change emails the client (to a confirmed email only) unless
   ``notify_client`` is false.
-- ``DELETE staff/tickets/<id>/``   → delete the ticket with its chat and files.
+
+Tickets are never deleted — by staff, clients or in the Django admin — so
+there is no DELETE.
 
 Each needs the matching staff permission (``apps.staff.catalogue``, section
-``tickets``): view, create, edit (status), assign (technician), delete.
+``tickets``): view, create, edit (status), assign (technician).
 """
 
 import logging
@@ -28,6 +30,7 @@ from rest_framework import generics, serializers as drf_serializers, status
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 
+from apps.records import audit
 from apps.staff.permissions import HasDashboardPerm
 from utils.exceptions import custom_exception_handler
 
@@ -112,20 +115,24 @@ class StaffTicketListView(_StaffView, generics.ListCreateAPIView):
         except drf_serializers.ValidationError as exc:
             return Response({'files': exc.detail}, status=status.HTTP_400_BAD_REQUEST)
         ticket = raise_ticket(serializer, client, files)
+        audit.log_create(request.user, ticket, summary=f'Raised for {audit.account(client).object_repr}')
         logger.info(f'{request.user.username} raised {ticket.reference} for {client.username} ({ticket.urgency})')
         fresh = with_counts(self.base_queryset(), 'staff').get(pk=ticket.pk)
         return Response(StaffTicketSerializer(fresh).data, status=status.HTTP_201_CREATED)
 
 
-class StaffTicketDetailView(_StaffView, generics.RetrieveUpdateDestroyAPIView):
+class StaffTicketDetailView(_StaffView, generics.RetrieveUpdateAPIView):
+    """One ticket: read it, change its status / technician. Tickets are never
+    deleted — by staff or clients — so there is no DELETE."""
+
     serializer_class = StaffTicketDetailSerializer
-    http_method_names = ['get', 'patch', 'delete', 'options']
+    http_method_names = ['get', 'patch', 'options']
 
     def dashboard_perm(self, request):
         if request.method in ('GET', 'HEAD'):
             return 'tickets.view'
-        if request.method == 'DELETE':
-            return 'tickets.delete'
+        if request.method != 'PATCH':
+            return None  # any staff member gets the plain "method not allowed"
         # PATCH: the status needs "edit", the technician needs "assign".
         data = request.data if hasattr(request.data, 'keys') else {}
         codes = []
@@ -134,17 +141,6 @@ class StaffTicketDetailView(_StaffView, generics.RetrieveUpdateDestroyAPIView):
         if 'technician_name' in data:
             codes.append('tickets.assign')
         return codes or 'tickets.edit'
-
-    def destroy(self, request, *args, **kwargs):
-        ticket = self.get_object()
-        reference, client_id = ticket.reference, ticket.client_id
-        for attachment in ticket.attachments.all():
-            attachment.file.delete(save=False)
-        ticket.delete()
-        ticket.pk, ticket.client_id = kwargs['pk'], client_id
-        ticket_changed(ticket, 'deleted')  # lists refresh on both sides
-        logger.warning(f'{request.user.username} deleted ticket {reference}')
-        return Response(status=status.HTTP_204_NO_CONTENT)
 
     def get_queryset(self):
         return with_counts(
@@ -158,7 +154,9 @@ class StaffTicketDetailView(_StaffView, generics.RetrieveUpdateDestroyAPIView):
         serializer = StaffTicketUpdateSerializer(ticket, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         notify = serializer.validated_data.pop('notify_client', True)
+        before = audit.snapshot(ticket)
         serializer.save()
+        audit.log_update(request.user, ticket, before)
         ticket_changed(ticket, 'status')
 
         emailed = False

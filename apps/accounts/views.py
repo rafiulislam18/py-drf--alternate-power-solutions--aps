@@ -40,6 +40,8 @@ from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.core.models import ClientProfile
+from apps.records import audit
+from apps.records.models import AuditLog
 from apps.subscription_portal.providers import find_subscriber
 from utils.exceptions import custom_exception_handler
 
@@ -145,6 +147,7 @@ class RegisterView(_PublicView):
                                             password=data['password'])
             ClientProfile.objects.create(user=user, role='client', company_name=data['name'],
                                          phone=data.get('phone', ''), self_registered=True)
+        audit.log(user, 'signed_up', audit.account(user), section='')
         logger.info(f'New self-registered dashboard account {user.username} ({email})')
         queue_verification(user)
         return Response({'detail': _CHECK_INBOX, 'email': email}, status=status.HTTP_201_CREATED)
@@ -167,15 +170,20 @@ class VerifyEmailView(_PublicView):
             if email == (user.email or '').lower():
                 profile.verified_email = user.email
                 profile.save(update_fields=['verified_email'])
+                audit.log(user, 'email_confirmed', audit.account(user), section='', summary=user.email)
             elif profile.pending_email and email == profile.pending_email.lower():
                 if identifier_taken(email, exclude_user=user):
                     return Response({'detail': 'Another account now uses that email, so it can\'t be moved to yours.'},
                                     status=status.HTTP_400_BAD_REQUEST)
+                old_email = user.email
                 user.email = profile.pending_email
                 user.save(update_fields=['email'])
                 profile.verified_email = profile.pending_email
                 profile.pending_email = ''
                 profile.save(update_fields=['verified_email', 'pending_email'])
+                audit.log(user, AuditLog.UPDATED, audit.account(user), section='',
+                          changes={'email': audit.change('Email', old_email, user.email)},
+                          summary='New email confirmed')
                 logger.info(f'Dashboard account {user.username} changed email to {user.email}')
             else:
                 return Response({'detail': _BAD_LINK}, status=status.HTTP_400_BAD_REQUEST)
@@ -243,6 +251,7 @@ class ResetPasswordView(_PublicView):
                     # The link went to this address, so they own it.
                     profile.verified_email = user.email
                     profile.save(update_fields=['verified_email'])
+            audit.log(user, 'password_reset', audit.account(user), section='', summary='With an emailed link')
             logger.info(f'Dashboard account {user.username} reset its password')
             return Response({'detail': 'Your new password is set.', 'login': user.email or user.username})
 
@@ -263,6 +272,7 @@ class ResetPasswordView(_PublicView):
                 user=user, role='client', company_name=subscriber['name'][:200] or email.split('@')[0],
                 phone=subscriber['phone'][:30], verified_email=email, self_registered=True,
             )
+        audit.log(user, 'signed_up', audit.account(user), section='', summary='Set up from an existing subscription')
         logger.info(f'Subscriber {email} set up dashboard account {user.username}')
         return Response({'detail': 'Your account is ready.', 'login': email}, status=status.HTTP_201_CREATED)
 
@@ -279,9 +289,14 @@ class MeView(_AccountsView):
             raise PermissionDenied('Staff account details are managed in the admin.')
         serializer = AccountUpdateSerializer(data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
+        before = audit.snapshot(profile)
         for field, value in serializer.validated_data.items():
             setattr(profile, field, value)
         profile.save()
+        changes = audit.diff(before, audit.snapshot(profile))
+        if changes:
+            audit.log(request.user, AuditLog.UPDATED, audit.account(request.user), section='', changes=changes,
+                      summary='Account details')
         return Response(AccountSerializer(request.user).data)
 
 
@@ -296,6 +311,7 @@ class ChangePasswordView(_AccountsView):
         user = request.user
         user.set_password(serializer.validated_data['password'])
         user.save(update_fields=['password'])
+        audit.log(user, 'password_changed', audit.account(user), section='')
         logger.info(f'Dashboard account {user.username} changed its password')
         # The password version changed, so every other session is now dead;
         # hand this one a fresh pair so it carries on.
@@ -329,6 +345,8 @@ class ChangeEmailView(_AccountsView):
             profile.save(update_fields=['pending_email'])
             cache.delete(f'accounts:verify-sent:{user.pk}:{email}')
             queue_verification(user, email)
+            audit.log(user, AuditLog.UPDATED, audit.account(user), section='',
+                      summary=f'Asked to change the email to {email} (waiting for the link to be clicked)')
         return Response({
             'detail': f'We\'ve sent a confirmation link to {email}. Your email changes once you click it.',
             **AccountSerializer(user).data,
@@ -337,6 +355,8 @@ class ChangeEmailView(_AccountsView):
     def delete(self, request):
         profile = _profile_for(request.user)
         if profile is not None and profile.pending_email:
-            profile.pending_email = ''
+            pending, profile.pending_email = profile.pending_email, ''
             profile.save(update_fields=['pending_email'])
+            audit.log(request.user, AuditLog.UPDATED, audit.account(request.user), section='',
+                      summary=f'Cancelled the email change to {pending}')
         return Response(AccountSerializer(request.user).data)

@@ -166,6 +166,7 @@ INSTALLED_APPS = [
     'apps.quote_sheet',
     'apps.solar_estimates',
     'apps.staff',
+    'apps.records',
 
     # ── Gas Guard apps (see the "GAS GUARD ONLY" settings block below) ──
     # Namespaced under apps/gas_guard/ with unique labels (gg_*) so their
@@ -502,6 +503,9 @@ JAZZMIN_SETTINGS = {
 
         "subscription.Client": "fas fa-user-friends",
         "subscription.Subscription": "fas fa-desktop",
+
+        "records": "fas fa-history",
+        "records.AuditLog": "fas fa-clipboard-list",
     },
 }
 
@@ -555,6 +559,10 @@ CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = 'Africa/Johannesburg'   # ← Client timezone
 CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'
+
+# Dashboard trash (apps.records): items are deleted for good this many days
+# after they were moved to the trash (daily clean-up, 03:00).
+TRASH_RETENTION_DAYS = int(os.getenv('TRASH_RETENTION_DAYS', '90'))
 
 # NOTE: Stope celery for local dev, when good to have
 # Set CELERY_EAGER=False in production to keep celery running

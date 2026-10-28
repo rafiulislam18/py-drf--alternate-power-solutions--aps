@@ -176,5 +176,9 @@ class TestImageHousekeeping:
         second = svc.image.path
         import os
         assert not os.path.exists(first) and os.path.exists(second)
+        # Deleting moves it to the trash: the image stays (it can be restored)…
         admin_api_client.delete(f'/services-projects/admin/services/{svc.id}/')
+        assert os.path.exists(second)
+        # …until the automatic clean-up deletes it for good.
+        Service.all_objects.get(pk=svc.pk).delete_forever()
         assert not os.path.exists(second)

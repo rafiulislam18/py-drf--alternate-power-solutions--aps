@@ -34,6 +34,8 @@ from rest_framework.response import Response
 
 from apps.core.models import ClientProfile
 from apps.core.permissions import IsDashboardClient
+from apps.records import audit
+from apps.records.models import Target
 from apps.services_and_projects.models import Service
 from apps.solar_dashboard.models import Site
 from apps.subscription_portal.cancellation import cancel_for_email
@@ -227,6 +229,7 @@ class SiteListCreateView(_ClientView, _SiteQuerysetMixin, generics.ListCreateAPI
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         site = serializer.save(client=request.user, created_by=request.user)
+        audit.log_create(request.user, site)
         logger.info(f'{request.user.username} added site "{site.name}"')
         return Response(
             self.get_serializer(self.get_queryset().get(pk=site.pk)).data,
@@ -241,7 +244,8 @@ class SiteDetailView(_ClientView, _SiteQuerysetMixin, generics.UpdateAPIView):
         site = self.get_object()
         serializer = self.get_serializer(site, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
-        serializer.save()
+        before = audit.snapshot(site)
+        audit.log_update(request.user, serializer.save(), before)
         return Response(self.get_serializer(self.get_queryset().get(pk=site.pk)).data)
 
 
@@ -274,6 +278,8 @@ class SubscriptionCancelView(_ClientView, generics.GenericAPIView):
         ref = _body(request).get('ref')
         ref = ref if isinstance(ref, str) else None  # missing / non-string → the "required" 400
         code, detail = cancel_for_email(email, ref, source='Client dashboard')
+        if 200 <= code < 300:
+            audit.log(request.user, 'cancelled', Target('subscription', ref, ref), section='', summary=detail)
         return Response({'detail': detail}, status=code)
 
 
@@ -334,6 +340,7 @@ class TicketListCreateView(_ClientView, generics.ListCreateAPIView):
 
         client = request.user
         ticket = raise_ticket(serializer, client, files)
+        audit.log_create(client, ticket)
         ticket = self.get_queryset().get(pk=ticket.pk)
         logger.info(f'{client.username} raised {ticket.reference} ({ticket.urgency})')
         return Response(TicketSerializer(ticket).data, status=status.HTTP_201_CREATED)

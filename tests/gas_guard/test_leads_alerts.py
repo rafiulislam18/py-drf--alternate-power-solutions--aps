@@ -21,7 +21,7 @@ from apps.gas_guard.leads.models import DemoBooking
 from apps.gas_guard.users.models import GasGuardUser
 from apps.gas_guard.weight_scale.models import ScaleDevice, WeightReading
 
-DEMO_BOOKINGS = '/api/gas-guard/leads/demo-bookings/'
+DEMO_BOOKINGS = '/gas-guard/leads/demo-bookings/'
 SEND_EMAIL_PATH = 'apps.gas_guard.alerts.tasks.send_low_gas_email'
 
 

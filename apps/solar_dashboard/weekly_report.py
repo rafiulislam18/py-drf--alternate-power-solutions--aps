@@ -44,6 +44,8 @@ from django.conf import settings
 from django.contrib.auth.models import User
 from django.db import transaction
 
+from apps.records import audit
+
 from .energitrack import REPORT_TZ, EnergiTrackClient, EnergiTrackError
 from .models import Site, SiteData, SolarReport
 
@@ -363,6 +365,7 @@ def build_weekly_report(today=None, *, period=None, allow_failures=True, dry_run
         )
         for order, (site, fields, _) in enumerate(result.rows):
             SiteData.objects.create(report=report, site=site, order=order, **fields)
+        audit.log_create(None, report, summary='Created automatically (weekly solar report)')
     result.report = report
     result.status = 'created'
     return result

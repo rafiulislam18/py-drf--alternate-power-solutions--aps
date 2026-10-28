@@ -3,6 +3,9 @@ Tests for the Gas Guard subscription app: status, payment history, checkout
 gating, cancel (monitoring + swap add-on), and the PayFast ITN handler
 (COMPLETE / CANCELLED / duplicate / amount-mismatch). PayFast network calls and
 admin-email side effects are patched out.
+
+Billing is per site: every subscription belongs to one ScaleDevice, and the
+checkout / cancel endpoints take ``{"deviceId": <id>}``.
 """
 
 from decimal import Decimal
@@ -13,16 +16,17 @@ from django.test import override_settings
 
 from apps.gas_guard.subscription.models import Payment, Subscription
 from apps.gas_guard.users.models import GasGuardUser
+from apps.gas_guard.weight_scale.models import ScaleDevice
 
 from .conftest import auth_client_for
 
-STATUS = '/api/gas-guard/subscription/status/'
-PAYMENTS = '/api/gas-guard/subscription/payments/'
-CHECKOUT = '/api/gas-guard/subscription/create-payfast-checkout/'
-SWAP_CHECKOUT = '/api/gas-guard/subscription/create-swap-addon-checkout/'
-CANCEL = '/api/gas-guard/subscription/cancel/'
-CANCEL_SWAP = '/api/gas-guard/subscription/cancel-swap-addon/'
-NOTIFY = '/api/gas-guard/subscription/payfast-notify/'
+STATUS = '/gas-guard/subscription/status/'
+PAYMENTS = '/gas-guard/subscription/payments/'
+CHECKOUT = '/gas-guard/subscription/create-payfast-checkout/'
+SWAP_CHECKOUT = '/gas-guard/subscription/create-swap-addon-checkout/'
+CANCEL = '/gas-guard/subscription/cancel/'
+CANCEL_SWAP = '/gas-guard/subscription/cancel-swap-addon/'
+NOTIFY = '/gas-guard/subscription/payfast-notify/'
 
 CANCEL_PATH = 'apps.gas_guard.subscription.views.cancel_payfast_subscription'
 EMAIL_ADMIN_PATH = 'apps.gas_guard.subscription.views._email_admin_new_payment'
@@ -49,6 +53,15 @@ def subscribed_user(db):
     return user
 
 
+def make_site(user, device_id='dev-001', name='Kitchen'):
+    """A site (ScaleDevice) owned by ``user`` — subscriptions are per site."""
+    return ScaleDevice.objects.create(device_id=device_id, name=name, owner=user)
+
+
+def site_body(site):
+    return {'deviceId': site.id}
+
+
 # ── status ───────────────────────────────────────────────────────────────────
 
 @pytest.mark.django_db
@@ -66,11 +79,17 @@ def test_status_device_user_not_subscribed(gg_client):
 
 @pytest.mark.django_db
 def test_status_reflects_active_subscription(subscribed_user):
-    Subscription.objects.create(user=subscribed_user, is_active=True, subscription_length=3)
+    site = make_site(subscribed_user)
+    make_site(subscribed_user, device_id='dev-002', name='Garage')  # not subscribed
+    Subscription.objects.create(user=subscribed_user, device=site, is_active=True, subscription_length=3)
     resp = auth_client_for(subscribed_user).get(STATUS)
     assert resp.status_code == 200
     assert resp.data['subscribed'] is True
-    assert resp.data['monitoring']['monthsPaid'] == 3
+    by_name = {s['name']: s for s in resp.data['sites']}
+    assert by_name['Kitchen']['monitoring']['active'] is True
+    assert by_name['Kitchen']['monitoring']['monthsPaid'] == 3
+    assert by_name['Garage']['monitoring']['active'] is False
+    assert resp.data['summary']['subscribedSites'] == 1
 
 
 # ── payment history ──────────────────────────────────────────────────────────
@@ -94,25 +113,40 @@ def test_payments_lists_only_own(subscribed_user, gg_user):
 @override_settings(**PAYFAST_TEST_SETTINGS)
 @pytest.mark.django_db
 def test_checkout_creates_subscription_row_for_device_user(gg_client, gg_user):
-    resp = gg_client.post(CHECKOUT, {}, format='json')
+    site = make_site(gg_user)
+    resp = gg_client.post(CHECKOUT, site_body(site), format='json')
     assert resp.status_code == 200
     assert 'url' in resp.data and 'data' in resp.data
-    assert Subscription.objects.filter(user=gg_user).exists()
+    assert Subscription.objects.filter(user=gg_user, device=site).exists()
+
+
+@override_settings(**PAYFAST_TEST_SETTINGS)
+@pytest.mark.django_db
+def test_checkout_needs_a_site_the_user_owns(gg_client, gg_user):
+    assert gg_client.post(CHECKOUT, {}, format='json').status_code == 400
+    other = GasGuardUser(email='other@example.com')
+    other.set_password('x')
+    other.save()
+    assert gg_client.post(CHECKOUT, site_body(make_site(other)), format='json').status_code == 404
 
 
 @override_settings(**PAYFAST_TEST_SETTINGS)
 @pytest.mark.django_db
 def test_checkout_refused_when_already_subscribed(subscribed_user):
-    resp = auth_client_for(subscribed_user).post(CHECKOUT, {}, format='json')
+    site = make_site(subscribed_user)
+    Subscription.objects.create(user=subscribed_user, device=site, is_active=True)
+    resp = auth_client_for(subscribed_user).post(CHECKOUT, site_body(site), format='json')
     assert resp.status_code == 400
+    assert 'already subscribed' in resp.data['detail']
 
 
 @override_settings(**PAYFAST_TEST_SETTINGS)
 @pytest.mark.django_db
-def test_swap_checkout_requires_active_monitoring(gg_client):
-    # Device-tier user can't buy the add-on.
-    resp = gg_client.post(SWAP_CHECKOUT, {}, format='json')
+def test_swap_checkout_requires_active_monitoring(gg_client, gg_user):
+    # No monitoring on this site → no add-on for it.
+    resp = gg_client.post(SWAP_CHECKOUT, site_body(make_site(gg_user)), format='json')
     assert resp.status_code == 400
+    assert not Subscription.objects.filter(swap_addon_active=True).exists()
 
 
 # ── cancel (monitoring) ──────────────────────────────────────────────────────
@@ -120,46 +154,67 @@ def test_swap_checkout_requires_active_monitoring(gg_client):
 @pytest.mark.django_db
 @patch(CANCEL_PATH, return_value=True)
 def test_cancel_monitoring_deactivates_and_downgrades(mock_cancel, subscribed_user):
-    Subscription.objects.create(
-        user=subscribed_user, is_active=True, payfast_token='tok-1', subscription_length=2,
+    site = make_site(subscribed_user)
+    sub = Subscription.objects.create(
+        user=subscribed_user, device=site, is_active=True, payfast_token='tok-1', subscription_length=2,
     )
-    resp = auth_client_for(subscribed_user).post(CANCEL, {}, format='json')
+    resp = auth_client_for(subscribed_user).post(CANCEL, site_body(site), format='json')
     assert resp.status_code == 200
     mock_cancel.assert_called_once_with('tok-1')
     subscribed_user.refresh_from_db()
-    assert subscribed_user.tier == GasGuardUser.Tier.DEVICE
-    assert subscribed_user.subscription.is_active is False
+    sub.refresh_from_db()
+    assert subscribed_user.tier == GasGuardUser.Tier.DEVICE  # no site left active
+    assert sub.is_active is False
+
+
+@pytest.mark.django_db
+@patch(CANCEL_PATH, return_value=True)
+def test_cancel_one_site_keeps_the_others(mock_cancel, subscribed_user):
+    kitchen = make_site(subscribed_user)
+    garage = make_site(subscribed_user, device_id='dev-002', name='Garage')
+    Subscription.objects.create(user=subscribed_user, device=kitchen, is_active=True, payfast_token='tok-1')
+    other = Subscription.objects.create(user=subscribed_user, device=garage, is_active=True, payfast_token='tok-2')
+    resp = auth_client_for(subscribed_user).post(CANCEL, site_body(kitchen), format='json')
+    assert resp.status_code == 200
+    mock_cancel.assert_called_once_with('tok-1')
+    other.refresh_from_db()
+    subscribed_user.refresh_from_db()
+    assert other.is_active is True
+    assert subscribed_user.tier == GasGuardUser.Tier.SUBSCRIBED
 
 
 @pytest.mark.django_db
 @patch(CANCEL_PATH, return_value=True)
 def test_cancel_monitoring_cascades_to_addon(mock_cancel, subscribed_user):
-    Subscription.objects.create(
-        user=subscribed_user, is_active=True, payfast_token='tok-1',
+    site = make_site(subscribed_user)
+    sub = Subscription.objects.create(
+        user=subscribed_user, device=site, is_active=True, payfast_token='tok-1',
         swap_addon_active=True, swap_addon_token='tok-swap',
     )
-    resp = auth_client_for(subscribed_user).post(CANCEL, {}, format='json')
+    resp = auth_client_for(subscribed_user).post(CANCEL, site_body(site), format='json')
     assert resp.status_code == 200
-    subscribed_user.refresh_from_db()
-    assert subscribed_user.subscription.swap_addon_active is False
+    sub.refresh_from_db()
+    assert sub.swap_addon_active is False
     # Both plans cancelled upstream.
     assert mock_cancel.call_count == 2
 
 
 @pytest.mark.django_db
 def test_cancel_without_subscription_is_400(subscribed_user):
-    resp = auth_client_for(subscribed_user).post(CANCEL, {}, format='json')
+    resp = auth_client_for(subscribed_user).post(CANCEL, site_body(make_site(subscribed_user)), format='json')
     assert resp.status_code == 400
+    assert "doesn't have an active subscription" in resp.data['detail']
 
 
 @pytest.mark.django_db
 @patch(CANCEL_PATH, return_value=False)
 def test_cancel_monitoring_payfast_failure_is_502(mock_cancel, subscribed_user):
-    Subscription.objects.create(user=subscribed_user, is_active=True, payfast_token='tok-1')
-    resp = auth_client_for(subscribed_user).post(CANCEL, {}, format='json')
+    site = make_site(subscribed_user)
+    sub = Subscription.objects.create(user=subscribed_user, device=site, is_active=True, payfast_token='tok-1')
+    resp = auth_client_for(subscribed_user).post(CANCEL, site_body(site), format='json')
     assert resp.status_code == 502
-    subscribed_user.refresh_from_db()
-    assert subscribed_user.subscription.is_active is True  # untouched on failure
+    sub.refresh_from_db()
+    assert sub.is_active is True  # untouched on failure
 
 
 # ── cancel (swap add-on) ─────────────────────────────────────────────────────
@@ -167,23 +222,26 @@ def test_cancel_monitoring_payfast_failure_is_502(mock_cancel, subscribed_user):
 @pytest.mark.django_db
 @patch(CANCEL_PATH, return_value=True)
 def test_cancel_swap_addon_leaves_monitoring_active(mock_cancel, subscribed_user):
-    Subscription.objects.create(
-        user=subscribed_user, is_active=True, payfast_token='tok-1',
+    site = make_site(subscribed_user)
+    sub = Subscription.objects.create(
+        user=subscribed_user, device=site, is_active=True, payfast_token='tok-1',
         swap_addon_active=True, swap_addon_token='tok-swap',
     )
-    resp = auth_client_for(subscribed_user).post(CANCEL_SWAP, {}, format='json')
+    resp = auth_client_for(subscribed_user).post(CANCEL_SWAP, site_body(site), format='json')
     assert resp.status_code == 200
     mock_cancel.assert_called_once_with('tok-swap')
-    subscribed_user.refresh_from_db()
-    assert subscribed_user.subscription.swap_addon_active is False
-    assert subscribed_user.subscription.is_active is True
+    sub.refresh_from_db()
+    assert sub.swap_addon_active is False
+    assert sub.is_active is True
 
 
 @pytest.mark.django_db
 def test_cancel_swap_addon_without_addon_is_400(subscribed_user):
-    Subscription.objects.create(user=subscribed_user, is_active=True)
-    resp = auth_client_for(subscribed_user).post(CANCEL_SWAP, {}, format='json')
+    site = make_site(subscribed_user)
+    Subscription.objects.create(user=subscribed_user, device=site, is_active=True)
+    resp = auth_client_for(subscribed_user).post(CANCEL_SWAP, site_body(site), format='json')
     assert resp.status_code == 400
+    assert 'cylinder-swap add-on to cancel' in resp.data['detail']
 
 
 # ── PayFast ITN handler ──────────────────────────────────────────────────────

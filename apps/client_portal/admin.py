@@ -15,6 +15,7 @@ from .models import Ticket, TicketAttachment
 class TicketAttachmentInline(admin.TabularInline):
     model = TicketAttachment
     extra = 0
+    can_delete = False
     fields = ['link', 'content_type', 'size', 'created_at']
     readonly_fields = ['link', 'content_type', 'size', 'created_at']
 
@@ -45,6 +46,9 @@ class TicketAdmin(admin.ModelAdmin):
         ]}),
         ('Timestamps', {'fields': ['created_at', 'updated_at']}),
     ]
+
+    def has_delete_permission(self, request, obj=None):
+        return False  # tickets are never deleted, not even here
 
     @admin.display(description='Ticket', ordering='id')
     def reference(self, obj):

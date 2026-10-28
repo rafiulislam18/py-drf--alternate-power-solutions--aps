@@ -31,7 +31,7 @@ def delete_unused_files(model, fields, names):
     def _cleanup():
         storage = model._meta.get_field(fields[0]).storage
         for name in names:
-            if not any(model.objects.filter(**{f: name}).exists() for f in fields):
+            if not any(getattr(model, 'all_objects', model._default_manager).filter(**{f: name}).exists() for f in fields):
                 storage.delete(name)
 
     transaction.on_commit(_cleanup)

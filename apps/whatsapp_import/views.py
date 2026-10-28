@@ -20,6 +20,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.core.roles import get_role
+from apps.records import audit
+from apps.records.models import Target
 from apps.staff.access import denied_message, has_perm
 from .jobs_export import (
     ExportInProgress, JobsSheetConfigError, export_marked_jobs, pending_jobs_qs,
@@ -153,8 +155,11 @@ class WhatsAppMessageMarkView(APIView):
 
         serializer = MarkJobSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        was = (message.marked_as_job, message.dismissed)
         _apply_mark(message, serializer.validated_data['marked_as_job'])
         message.save(update_fields=['marked_as_job', 'marked_as_job_at', 'dismissed', 'dismissed_at'])
+        if (message.marked_as_job, message.dismissed) != was:
+            audit.log(request.user, 'marked_job' if message.marked_as_job else 'unmarked_job', message)
         return Response(WhatsAppMessageSerializer(message).data, status=status.HTTP_200_OK)
 
 
@@ -173,6 +178,9 @@ class WhatsAppMessageBulkMarkView(APIView):
         mark = serializer.validated_data['marked_as_job']
 
         now = timezone.now()
+        open_ = WhatsAppMessage.objects.filter(pk__in=ids, exported_to_jobs_sheet=False)
+        changing = list(open_.filter(Q(marked_as_job=False) | Q(dismissed=True)) if mark
+                        else open_.filter(marked_as_job=True))
         if mark:
             # Marking as a job clears any "not a job" dismissal (same as the
             # single endpoint). Exported messages are locked and left alone.
@@ -189,6 +197,8 @@ class WhatsAppMessageBulkMarkView(APIView):
             updated = (WhatsAppMessage.objects
                        .filter(pk__in=ids, exported_to_jobs_sheet=False)
                        .update(marked_as_job=False, marked_as_job_at=None))
+        for message in changing:
+            audit.log(request.user, 'marked_job' if mark else 'unmarked_job', message, summary='Several at once')
         return Response({'updated': updated}, status=status.HTTP_200_OK)
 
 
@@ -209,6 +219,7 @@ class WhatsAppMessageDismissView(APIView):
         serializer = DismissSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         dismiss = serializer.validated_data['dismissed']
+        was_dismissed = message.dismissed
 
         if dismiss:
             message.dismissed = True
@@ -222,6 +233,8 @@ class WhatsAppMessageDismissView(APIView):
             message.dismissed = False
             message.dismissed_at = None
         message.save(update_fields=['dismissed', 'dismissed_at', 'marked_as_job', 'marked_as_job_at'])
+        if message.dismissed != was_dismissed:
+            audit.log(request.user, 'dismissed' if dismiss else 'undismissed', message)
         return Response(WhatsAppMessageSerializer(message).data, status=status.HTTP_200_OK)
 
 
@@ -240,6 +253,7 @@ class WhatsAppMessageBulkDismissView(APIView):
         dismiss = serializer.validated_data['dismissed']
 
         now = timezone.now()
+        changing = list(WhatsAppMessage.objects.filter(pk__in=ids, dismissed=not dismiss))
         if dismiss:
             updated = (WhatsAppMessage.objects
                        .filter(pk__in=ids, dismissed=False)
@@ -252,6 +266,8 @@ class WhatsAppMessageBulkDismissView(APIView):
             updated = (WhatsAppMessage.objects
                        .filter(pk__in=ids, dismissed=True)
                        .update(dismissed=False, dismissed_at=None))
+        for message in changing:
+            audit.log(request.user, 'dismissed' if dismiss else 'undismissed', message, summary='Several at once')
         return Response({'updated': updated}, status=status.HTTP_200_OK)
 
 
@@ -287,6 +303,9 @@ class WhatsAppJobsExportView(APIView):
                 {'detail': f"Jobs sheet error: {stats['error']}", **stats},
                 status=status.HTTP_502_BAD_GATEWAY,
             )
+        audit.log(request.user, 'exported', Target('whatsapp_export', timezone.now().strftime('%Y%m%d%H%M%S'),
+                                                   'Marked jobs → jobs sheet'),
+                  section='whatsapp', summary=', '.join(f'{k}: {v}' for k, v in stats.items()))
         return Response(stats, status=status.HTTP_200_OK)
 
 

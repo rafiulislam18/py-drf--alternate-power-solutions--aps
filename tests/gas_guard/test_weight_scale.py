@@ -12,16 +12,17 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.gas_guard.users.models import GasGuardUser
+from apps.gas_guard.subscription.models import Subscription
 from apps.gas_guard.weight_scale.models import ScaleDevice, WeightReading
 from apps.gas_guard.weight_scale.services import site_payload, daily_consumption, to_kg
 
 from .conftest import auth_client_for
 
-INGEST = '/api/gas-guard/weight-scale/readings/'
-READING_LIST = '/api/gas-guard/weight-scale/readings/list/'
-DEVICE_LIST = '/api/gas-guard/weight-scale/devices/'
-SITES = '/api/gas-guard/weight-scale/sites/'
-FLEET_CONS = '/api/gas-guard/weight-scale/sites/consumption/'
+INGEST = '/gas-guard/weight-scale/readings/'
+READING_LIST = '/gas-guard/weight-scale/readings/list/'
+DEVICE_LIST = '/gas-guard/weight-scale/devices/'
+SITES = '/gas-guard/weight-scale/sites/'
+FLEET_CONS = '/gas-guard/weight-scale/sites/consumption/'
 
 
 @pytest.fixture
@@ -137,7 +138,9 @@ def test_fleet_consumption_ok_for_subscriber(db):
     sub = GasGuardUser(email='s@example.com', tier=GasGuardUser.Tier.SUBSCRIBED)
     sub.set_password('x')
     sub.save()
-    ScaleDevice.objects.create(device_id='dev-s', name='S', owner=sub)
+    site = ScaleDevice.objects.create(device_id='dev-s', name='S', owner=sub)
+    # Billing is per site: the fleet chart needs an active subscription on a site.
+    Subscription.objects.create(user=sub, device=site, is_active=True)
     resp = auth_client_for(sub).get(FLEET_CONS)
     assert resp.status_code == 200
 

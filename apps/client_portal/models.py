@@ -24,6 +24,8 @@ TICKET_PREFIX = 'APS-'
 class Ticket(models.Model):
     """A job request raised by a client account."""
 
+    audit_section = 'tickets'
+
     class Urgency(models.TextChoices):
         NORMAL = 'normal', 'Normal'
         URGENT = 'urgent', 'Urgent'

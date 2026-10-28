@@ -1,4 +1,7 @@
 from django.contrib import admin
+
+from apps.records.admin import TrashableAdmin
+
 from .models import SolarReport, SiteData, Site
 
 
@@ -32,7 +35,7 @@ class SiteDataInline(admin.TabularInline):
 
 
 @admin.register(SolarReport)
-class SolarReportAdmin(admin.ModelAdmin):
+class SolarReportAdmin(TrashableAdmin):
     list_display = ['get_client_name', 'period_start', 'period_end', 'report_date', 'created_at', 'uuid']
     list_filter = ['report_date']
     search_fields = ['client__username', 'client__client_profile__company_name']

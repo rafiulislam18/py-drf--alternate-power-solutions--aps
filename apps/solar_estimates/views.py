@@ -36,6 +36,8 @@ from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.records import audit
+from apps.records.models import AuditLog
 from apps.staff.permissions import HasDashboardPerm
 from utils.exceptions import custom_exception_handler
 
@@ -94,7 +96,7 @@ def proposed_number(inputs, s, exclude_pk=None):
     """The quotation number this proposal would get now (typed number wins)."""
     if (inputs.get('estimate_number') or '').strip():
         return inputs['estimate_number'].strip()
-    used = SolarEstimate.objects.exclude(number='')
+    used = SolarEstimate.all_objects.exclude(number='')  # numbers in the trash stay taken
     if exclude_pk:
         used = used.exclude(pk=exclude_pk)
     site = inputs.get('site_code') or suggest_site_code(inputs.get('site_address'))
@@ -217,6 +219,7 @@ class EstimateListView(_StaffView):
         est = SolarEstimate(created_by=request.user)
         _store(est, inputs, edits, doc)
         est.save()
+        audit.log_create(request.user, est)
         return Response(_detail(request, est), status=status.HTTP_201_CREATED)
 
 
@@ -238,15 +241,15 @@ class EstimateDetailView(_StaffView):
             return blocked
         inputs, edits = _validated(request.data)
         _, doc = compute(inputs, edits)
+        before = audit.snapshot(est)
         _store(est, inputs, edits, doc)
         est.save()
+        audit.log_update(request.user, est, before)
         return Response(_detail(request, est))
 
     def delete(self, request, pk):
         est = get_object_or_404(SolarEstimate, pk=pk)
-        if est.roof_image:
-            est.roof_image.delete(save=False)
-        est.delete()
+        est.trash(request.user)  # restorable from the Trash; roof picture kept until it's deleted for good
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -281,8 +284,10 @@ class EstimateConfirmView(_StaffView):
         s = _settings_dict()
         typed = (edits.get('quote_no') or inputs.get('estimate_number') or '').strip()
         number = typed or proposed_number(inputs, s, exclude_pk=est.pk)
-        if SolarEstimate.objects.filter(number=number).exclude(pk=est.pk).exists():
-            return Response({'detail': f'Quotation number {number} is already used — choose another.'},
+        taken = SolarEstimate.all_objects.filter(number=number).exclude(pk=est.pk)
+        if taken.exists():
+            where = ' by a proposal in the trash' if taken.filter(deleted_at__isnull=False).exists() else ''
+            return Response({'detail': f'Quotation number {number} is already used{where} — choose another.'},
                             status=status.HTTP_400_BAD_REQUEST)
         result, doc = compute(inputs, edits, quote_number=number)
         blocking = [w for w in _warnings(inputs, result) if w['level'] == 'error']
@@ -295,6 +300,7 @@ class EstimateConfirmView(_StaffView):
         est.status = SolarEstimate.Status.ISSUED
         est.issued_at = timezone.now()
         est.save()
+        audit.log(request.user, 'confirmed', est, summary=f'Quotation {est.number} — PDF ready')
         return Response(_detail(request, est))
 
 
@@ -304,6 +310,7 @@ class EstimateReopenView(_StaffView):
         est = get_object_or_404(SolarEstimate, pk=pk)
         est.status, est.snapshot, est.issued_at = SolarEstimate.Status.DRAFT, None, None
         est.save(update_fields=['status', 'snapshot', 'issued_at', 'updated_at'])
+        audit.log(request.user, 'reopened', est, summary='Back to draft for changes')
         return Response(_detail(request, est))
 
 
@@ -365,6 +372,7 @@ class RoofImageView(_StaffView):
         if est.roof_image:
             est.roof_image.delete(save=False)
         est.roof_image.save(f'{uuid.uuid4().hex}.jpg', ContentFile(out.getvalue()), save=True)
+        audit.log(request.user, AuditLog.UPDATED, est, summary='Roof layout picture added')
         return Response(_detail(request, est))
 
     def delete(self, request, pk):
@@ -373,6 +381,7 @@ class RoofImageView(_StaffView):
             return blocked
         if est.roof_image:
             est.roof_image.delete(save=True)
+            audit.log(request.user, AuditLog.UPDATED, est, summary='Roof layout picture removed')
         return Response(_detail(request, est))
 
 
@@ -388,9 +397,11 @@ class SettingsView(_StaffView):
         })
 
     def put(self, request):
-        ser = SettingsSerializer(EstimateSettings.load(), data=request.data, partial=True)
+        settings_obj = EstimateSettings.load()
+        ser = SettingsSerializer(settings_obj, data=request.data, partial=True)
         ser.is_valid(raise_exception=True)
-        ser.save()
+        before = audit.snapshot(settings_obj)
+        audit.log_update(request.user, ser.save(), before)
         return self.get(request)
 
 
@@ -403,21 +414,26 @@ class CatalogueCreateView(_StaffView):
             # New rows go to the end: the engine uses the first matching battery / panel, so a blank
             # new row must never jump ahead of the one in use.
             last = CatalogueItem.objects.order_by('-sort_order').values_list('sort_order', flat=True).first()
-            ser.save(sort_order=(last or 0) + 1)
+            item = ser.save(sort_order=(last or 0) + 1)
         else:
-            ser.save()
+            item = ser.save()
+        audit.log_create(request.user, item)
         return Response(ser.data, status=status.HTTP_201_CREATED)
 
 
 class CatalogueDetailView(_StaffView):
     dashboard_perms = {'PATCH': 'estimates.settings', 'DELETE': 'estimates.settings'}
     def patch(self, request, pk):
-        ser = CatalogueItemSerializer(get_object_or_404(CatalogueItem, pk=pk), data=request.data, partial=True)
+        item = get_object_or_404(CatalogueItem, pk=pk)
+        ser = CatalogueItemSerializer(item, data=request.data, partial=True)
         ser.is_valid(raise_exception=True)
-        ser.save()
+        before = audit.snapshot(item)
+        audit.log_update(request.user, ser.save(), before)
         return Response(ser.data)
 
     def delete(self, request, pk):
-        get_object_or_404(CatalogueItem, pk=pk).delete()
+        item = get_object_or_404(CatalogueItem, pk=pk)
+        audit.log_remove(request.user, item)
+        item.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 

@@ -1,10 +1,12 @@
 from django.contrib import admin
 
+from apps.records.admin import TrashableAdmin
+
 from .models import CatalogueItem, EstimateSettings, SolarEstimate
 
 
 @admin.register(SolarEstimate)
-class SolarEstimateAdmin(admin.ModelAdmin):
+class SolarEstimateAdmin(TrashableAdmin):
     list_display = ['id', 'number', 'status', 'client_name', 'site_address', 'total_incl_vat', 'updated_at']
     list_filter = ['status']
     search_fields = ['number', 'client_name', 'site_address']

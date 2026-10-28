@@ -23,8 +23,9 @@ SECTIONS = [
     },
     {
         'key': 'tickets', 'label': 'Client tickets',
+        # No "delete": tickets are never deleted.
         'perms': [('view', 'View tickets'), ('create', 'Create tickets'),
-                  ('edit', 'Change ticket status'), ('delete', 'Delete tickets'),
+                  ('edit', 'Change ticket status'),
                   ('assign', 'Assign technician'),
                   ('chat_view', 'Read ticket chat'), ('chat_send', 'Send chat messages')],
     },
@@ -58,6 +59,16 @@ SECTIONS = [
         'key': 'blogs', 'label': 'Site content — blog (posts & categories)',
         'perms': [('view', 'View blog posts'), ('create', 'Create blog posts'),
                   ('edit', 'Edit blog posts'), ('delete', 'Delete blog posts')],
+    },
+    {
+        # Staff only ever see (and restore) what they deleted themselves; only
+        # superusers see all of it and delete things for good.
+        'key': 'trash', 'label': 'Trash',
+        'perms': [('view', 'See & restore items you deleted')],
+    },
+    {
+        'key': 'audit', 'label': 'Audit history',
+        'perms': [('view_all', 'View the full audit history (everyone’s actions)')],
     },
 ]
 

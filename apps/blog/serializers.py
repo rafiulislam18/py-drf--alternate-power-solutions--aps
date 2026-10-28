@@ -53,9 +53,12 @@ class AdminBlogCategorySerializer(serializers.ModelSerializer):
         value = ' '.join(value.split())
         if not value:
             raise serializers.ValidationError('Enter a category name.')
-        clash = BlogCategory.objects.filter(name__iexact=value)
+        # A category in the trash keeps its name, so it can be restored.
+        clash = BlogCategory.all_objects.filter(name__iexact=value)
         if self.instance is not None:
             clash = clash.exclude(pk=self.instance.pk)
         if clash.exists():
-            raise serializers.ValidationError('A category with that name already exists.')
+            raise serializers.ValidationError(
+                'A category with that name is in the trash. Restore it, or pick another name.'
+                if clash.filter(deleted_at__isnull=False).exists() else 'A category with that name already exists.')
         return value

@@ -1,12 +1,13 @@
 from functools import partial
 
-from django.db.models import Count
+from django.db.models import Count, Q
 from rest_framework.views import APIView
 from rest_framework import generics, status
 from rest_framework.response import Response
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from apps.core.content_files import delete_unused_files, file_names
+from apps.records import audit
 from apps.staff.permissions import HasDashboardPerm
 from utils.exceptions import custom_exception_handler
 from .models import *
@@ -86,34 +87,36 @@ class _AdminContentMixin:
         return partial(custom_exception_handler, keep_fields=True)
 
 
+# Projects in the trash don't count.
+_LIVE_PROJECTS = Count('projects', filter=Q(projects__deleted_at__isnull=True))
+
+
 class AdminServiceListCreateView(_AdminContentMixin, generics.ListCreateAPIView):
     dashboard_section = 'services'
     serializer_class = AdminServiceSerializer
-    queryset = Service.objects.annotate(num_projects=Count('projects')).order_by('-appreciation_mark', 'title')
+    queryset = Service.objects.annotate(num_projects=_LIVE_PROJECTS).order_by('-appreciation_mark', 'title')
+
+    def perform_create(self, serializer):
+        audit.log_create(self.request.user, serializer.save())
 
 
 PROJECT_IMAGE_FIELDS = ['image', 'image_2', 'image_3']
 
 
 class AdminServiceDetailView(_AdminContentMixin, generics.RetrieveUpdateDestroyAPIView):
-    """Deleting a service also deletes its projects (FK cascade)."""
+    """Deleting a service moves it — and its projects — to the trash (images kept until it's deleted for good)."""
     dashboard_section = 'services'
     serializer_class = AdminServiceSerializer
-    queryset = Service.objects.annotate(num_projects=Count('projects'))
+    queryset = Service.objects.annotate(num_projects=_LIVE_PROJECTS)
 
     def perform_update(self, serializer):
-        before = file_names(serializer.instance, ['image'])
+        before, snap = file_names(serializer.instance, ['image']), audit.snapshot(serializer.instance)
         instance = serializer.save()
         delete_unused_files(Service, ['image'], before - file_names(instance, ['image']))
+        audit.log_update(self.request.user, instance, snap)
 
     def perform_destroy(self, instance):
-        service_files = file_names(instance, ['image'])
-        project_files = set()
-        for project in instance.projects.all():
-            project_files |= file_names(project, PROJECT_IMAGE_FIELDS)
-        instance.delete()
-        delete_unused_files(Service, ['image'], service_files)
-        delete_unused_files(Project, PROJECT_IMAGE_FIELDS, project_files)
+        instance.trash(self.request.user)
 
 
 class AdminProjectListCreateView(_AdminContentMixin, generics.ListCreateAPIView):
@@ -127,6 +130,9 @@ class AdminProjectListCreateView(_AdminContentMixin, generics.ListCreateAPIView)
             qs = qs.filter(service_id=service)
         return qs
 
+    def perform_create(self, serializer):
+        audit.log_create(self.request.user, serializer.save())
+
 
 class AdminProjectDetailView(_AdminContentMixin, generics.RetrieveUpdateDestroyAPIView):
     dashboard_section = 'projects'
@@ -134,11 +140,10 @@ class AdminProjectDetailView(_AdminContentMixin, generics.RetrieveUpdateDestroyA
     queryset = Project.objects.select_related('service')
 
     def perform_update(self, serializer):
-        before = file_names(serializer.instance, PROJECT_IMAGE_FIELDS)
+        before, snap = file_names(serializer.instance, PROJECT_IMAGE_FIELDS), audit.snapshot(serializer.instance)
         instance = serializer.save()
         delete_unused_files(Project, PROJECT_IMAGE_FIELDS, before - file_names(instance, PROJECT_IMAGE_FIELDS))
+        audit.log_update(self.request.user, instance, snap)
 
     def perform_destroy(self, instance):
-        files = file_names(instance, PROJECT_IMAGE_FIELDS)
-        instance.delete()
-        delete_unused_files(Project, PROJECT_IMAGE_FIELDS, files)
+        instance.trash(self.request.user)  # images kept until it's deleted for good

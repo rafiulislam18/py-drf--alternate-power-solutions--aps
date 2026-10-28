@@ -59,6 +59,8 @@ INSTALLED_APPS = [
     'apps.quote_sheet',
     'apps.solar_estimates',
     'apps.staff',
+    'apps.records',
+    'tests.records.testapp',  # test-only trashable models
 
     # Gas Guard apps — required so config.urls (which eagerly wires the
     # /api/gas-guard/ includes) can be imported during URL resolution; without
@@ -169,6 +171,9 @@ REST_FRAMEWORK = {
         # Staff/client dashboard password login: per IP and per username.
         'dashboard_login_ip': '30/15m',
         'dashboard_login_user': '10/15m',
+        # Gas Guard sign-up / verification codes.
+        'gg_code_send': '5/min',
+        'gg_code_verify': '10/min',
     },
     'TEST': {
         'DEFAULT_FORMAT': 'json'

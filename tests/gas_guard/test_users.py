@@ -16,13 +16,13 @@ from apps.gas_guard.users.tokens import GasGuardRefreshToken
 
 from .conftest import auth_client_for
 
-REGISTER = '/api/gas-guard/users/register/'
-VERIFY = '/api/gas-guard/users/verify-email/'
-RESEND = '/api/gas-guard/users/resend-verification/'
-LOGIN = '/api/gas-guard/users/login/'
-LOGOUT = '/api/gas-guard/users/logout/'
-ME = '/api/gas-guard/users/me/'
-NOTIFS = '/api/gas-guard/users/me/notifications/'
+REGISTER = '/gas-guard/users/register/'
+VERIFY = '/gas-guard/users/verify-email/'
+RESEND = '/gas-guard/users/resend-verification/'
+LOGIN = '/gas-guard/users/login/'
+LOGOUT = '/gas-guard/users/logout/'
+ME = '/gas-guard/users/me/'
+NOTIFS = '/gas-guard/users/me/notifications/'
 
 EMAIL_PATH = 'apps.gas_guard.users.views.send_verification_email'
 

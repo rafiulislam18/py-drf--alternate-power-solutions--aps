@@ -30,6 +30,7 @@ from rest_framework import generics, status
 from rest_framework.response import Response
 
 from apps.core.permissions import IsDashboardClient
+from apps.records import audit
 from apps.staff.permissions import HasDashboardPerm
 from utils.exceptions import custom_exception_handler
 
@@ -110,6 +111,8 @@ class _ChatView(generics.GenericAPIView):
             # "last update" moves so busy conversations rise in the lists.
             Ticket.objects.filter(pk=ticket.pk).update(**{field: message.pk}, updated_at=timezone.now())
             ticket_changed(ticket, 'message')
+            body = message.body
+            audit.log(request.user, 'message_sent', ticket, summary=body if len(body) <= 200 else body[:199] + '…')
         presence.touch(request.user)
         logger.info(f'{request.user.username} ({self.viewer_role}) wrote on {ticket.reference}')
         ticket.refresh_from_db()

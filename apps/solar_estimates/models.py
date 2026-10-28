@@ -14,6 +14,8 @@ Solar & battery budget estimates (staff dashboard → Sales → Solar estimates)
 from django.conf import settings
 from django.db import models
 
+from apps.records.models import TrashableModel
+
 from . import defaults
 
 
@@ -64,6 +66,8 @@ class EstimateSettings(models.Model):
         verbose_name = 'Estimate settings'
         verbose_name_plural = 'Estimate settings'
 
+    audit_section = 'estimates'
+
     def __str__(self):
         return 'Solar estimate settings'
 
@@ -107,6 +111,8 @@ class CatalogueItem(models.Model):
     class Meta:
         ordering = ['sort_order', 'id']
 
+    audit_section = 'estimates'
+
     def __str__(self):
         return f'{self.get_category_display()}: {self.model}'
 
@@ -119,7 +125,7 @@ class CatalogueItem(models.Model):
         }
 
 
-class SolarEstimate(models.Model):
+class SolarEstimate(TrashableModel):
     class Status(models.TextChoices):
         DRAFT = 'draft', 'Draft'
         ISSUED = 'issued', 'Confirmed'
@@ -147,6 +153,12 @@ class SolarEstimate(models.Model):
         constraints = [
             models.UniqueConstraint(fields=['number'], condition=~models.Q(number=''), name='solar_estimate_number_unique'),
         ]
+
+    # Deleting moves it to the trash (apps.records). Its quotation number stays
+    # taken while it's there, so a restore never clashes and no number is reused.
+    trash_section = 'estimates'
+    trash_label = 'Solar estimate'
+    trash_file_fields = ('roof_image',)
 
     def __str__(self):
         return self.number or f'Draft estimate #{self.pk}'

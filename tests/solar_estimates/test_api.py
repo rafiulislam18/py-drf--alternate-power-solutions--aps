@@ -214,3 +214,24 @@ def test_confirm_needs_client_and_site_address(staff, catalogue):
     # no consumption: the readings are named
     pk = staff.post(BASE, {'inputs': inputs(readings=[])}, format='json').data['id']
     assert 'readings' in staff.post(f'{BASE}{pk}/confirm/', {}, format='json').data
+
+
+def test_delete_moves_to_trash_and_keeps_the_number(staff, catalogue):
+    """Deleting puts the proposal in the trash (apps.records); its quotation
+    number stays taken, so the next one gets a new number and a restore never clashes."""
+    first = staff.post(BASE, {'inputs': inputs()}, format='json').data['id']
+    assert staff.post(f'{BASE}{first}/confirm/', {}, format='json').data['number'] == 'APS-PRJ-2610-MAR-001'
+
+    assert staff.delete(f'{BASE}{first}/').status_code == 204
+    assert staff.get(BASE).data['count'] == 0
+    assert staff.get(f'{BASE}{first}/').status_code == 404 and staff.get(f'{BASE}{first}/pdf/').status_code == 404
+    assert SolarEstimate.all_objects.get(pk=first).in_trash
+
+    second = staff.post(BASE, {'inputs': inputs()}, format='json').data['id']
+    assert staff.post(f'{BASE}{second}/confirm/', {}, format='json').data['number'] == 'APS-PRJ-2610-MAR-002'
+    third = staff.post(BASE, {'inputs': inputs(estimate_number='APS-PRJ-2610-MAR-001')}, format='json').data['id']
+    res = staff.post(f'{BASE}{third}/confirm/', {}, format='json')
+    assert res.status_code == 400 and 'in the trash' in res.data['detail']
+
+    res = staff.post(f'/records/trash/solar_estimates.solarestimate/{first}/restore/')
+    assert res.status_code == 200 and staff.get(f'{BASE}{first}/').data['number'] == 'APS-PRJ-2610-MAR-001'

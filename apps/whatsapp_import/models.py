@@ -81,6 +81,8 @@ class WhatsAppMessage(models.Model):
             ),
         ]
 
+    audit_section = 'whatsapp'
+
     def __str__(self):
         preview = (self.text[:40] + '…') if len(self.text) > 40 else self.text
         return f"{self.sender} @ {self.sent_at:%Y-%m-%d %H:%M}: {preview}"

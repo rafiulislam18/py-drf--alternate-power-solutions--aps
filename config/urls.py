@@ -49,6 +49,7 @@ urlpatterns = [
     path('client-portal/', include('apps.client_portal.urls')),
     path('container-conversion/', include('apps.container_conversion.urls')),
     path('quote-request/', include('apps.quote_request.urls')),
+    path('records/', include('apps.records.urls')),
     path('solar-estimates/', include('apps.solar_estimates.urls')),
     path('staff/', include('apps.staff.urls')),
     path('request-solar-cleaning/', include('apps.request_solar_cleaning.urls')),

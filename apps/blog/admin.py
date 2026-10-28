@@ -1,15 +1,19 @@
 from django.contrib import admin
+
+from apps.records.admin import TrashableAdmin
+
 from .models import Blog, BlogCategory
 
 
 class BlogInline(admin.TabularInline):
     model = Blog
     extra = 0
+    can_delete = False  # posts go to the trash from their own page
     fields = ('title', 'author', 'short_description', 'date')
 
 
 @admin.register(BlogCategory)
-class BlogCategoryAdmin(admin.ModelAdmin):
+class BlogCategoryAdmin(TrashableAdmin):
     list_display = ('id', 'name', 'appreciation_mark')
     search_fields = ('name',)
     ordering = ('-appreciation_mark', 'name')
@@ -18,7 +22,7 @@ class BlogCategoryAdmin(admin.ModelAdmin):
 
 
 @admin.register(Blog)
-class BlogAdmin(admin.ModelAdmin):
+class BlogAdmin(TrashableAdmin):
     list_display = ('id', 'title', 'category', 'author', 'date', 'read_time', 'appreciation_mark')
     list_filter = ('category', 'date')
     search_fields = ('title', 'category__name', 'short_description', 'long_description', 'author')

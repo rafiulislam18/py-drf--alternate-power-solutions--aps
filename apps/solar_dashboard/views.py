@@ -16,6 +16,8 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from apps.core.models import ClientProfile
 from apps.core.roles import get_role
+from apps.records import audit
+from apps.records.models import AuditLog
 from apps.staff.access import denied_message, has_perm, permissions_for
 from .models import SolarReport, SiteData, Site
 from apps.accounts.authentication import DashboardTokenRefreshSerializer
@@ -77,6 +79,7 @@ class DashboardTokenObtainPairSerializer(TokenObtainPairSerializer):
             )
 
         update_last_login(None, user)  # "last signed in" on the Staff accounts page
+        audit.log(user, 'signed_in', audit.account(user), section='')
         data['role'] = get_role(user)
         # What this staff member may do on the dashboard (superusers: everything).
         data['is_superuser'] = bool(user.is_superuser and data['role'] == 'admin')
@@ -166,7 +169,8 @@ class SolarReportListCreateView(APIView):
             return denied
         serializer = SolarReportSerializer(data=request.data)
         if serializer.is_valid():
-            serializer.save()
+            report = serializer.save()
+            audit.log_create(request.user, report)
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -198,7 +202,10 @@ class SolarReportDetailView(APIView):
             return denied
         serializer = SolarReportSerializer(report, data=request.data)
         if serializer.is_valid():
-            serializer.save()
+            before, figures = audit.snapshot(report), _site_figures(report)
+            report = serializer.save()
+            changed = _site_figures(report) != figures
+            audit.log_update(request.user, report, before, summary='Site figures changed' if changed else '')
             return Response(serializer.data, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -208,8 +215,15 @@ class SolarReportDetailView(APIView):
             return Response({'error': 'Report not found'}, status=status.HTTP_404_NOT_FOUND)
         if (denied := _forbid(request, 'reports.delete')):
             return denied
-        report.delete()
+        report.trash(request.user)  # restorable from the Trash for TRASH_RETENTION_DAYS
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+def _site_figures(report):
+    """The report's site rows as plain values, to tell whether an edit changed them."""
+    return [tuple(row) for row in report.sites.order_by('order', 'pk').values_list(
+        'site_id', 'solar_yield', 'battery_charge', 'usable_solar', 'estimated_saving',
+        'used_from_battery', 'sell_to_grid_kwh', 'sell_to_grid_r', 'grid_consumption', 'total_consumption')]
 
 
 class ClientListView(APIView):
@@ -239,6 +253,8 @@ class CreateClientView(APIView):
         serializer = CreateClientUserSerializer(data=request.data)
         if serializer.is_valid():
             user = serializer.save()
+            audit.log(request.user, AuditLog.CREATED, audit.account(user), section='clients',
+                      summary='New client account')
             if user.email:
                 # Their email only works for sign-in once they click this link.
                 queue_verification(user)
@@ -279,7 +295,7 @@ class SiteListCreateView(APIView):
             return denied
         serializer = SiteSerializer(data=request.data, context={'request': request})
         if serializer.is_valid():
-            serializer.save()
+            audit.log_create(request.user, serializer.save())
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -308,7 +324,8 @@ class SiteDetailView(APIView):
         serializer = SiteSerializer(site, data=request.data, partial=True,
                                     context={'request': request})
         if serializer.is_valid():
-            serializer.save()
+            before = audit.snapshot(site)
+            audit.log_update(request.user, serializer.save(), before)
             return Response(serializer.data, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -324,6 +341,9 @@ class SiteDetailView(APIView):
         if site.data_rows.exists():
             site.is_active = False
             site.save(update_fields=['is_active', 'updated_at'])
+            audit.log(request.user, AuditLog.UPDATED, site,
+                      changes={'is_active': audit.change('Active', 'Yes', 'No')},
+                      summary='Retired instead of deleted (it has report history)')
             return Response(
                 {'detail': 'Site has report history; it was retired (is_active=False) '
                            'instead of deleted.',
@@ -331,6 +351,7 @@ class SiteDetailView(APIView):
                 status=status.HTTP_200_OK,
             )
 
+        audit.log_remove(request.user, site)
         site.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 

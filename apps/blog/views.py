@@ -1,12 +1,13 @@
 from functools import partial
 
-from django.db.models import Count
+from django.db.models import Count, Q
 from rest_framework.views import APIView
 from rest_framework import generics, status
 from rest_framework.response import Response
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from apps.core.content_files import delete_unused_files, file_names
+from apps.records import audit
 from apps.staff.permissions import HasDashboardPerm
 from utils.exceptions import custom_exception_handler
 from .models import BlogCategory, Blog
@@ -77,34 +78,43 @@ class AdminBlogListCreateView(_AdminContentMixin, generics.ListCreateAPIView):
             qs = qs.filter(category_id=category)
         return qs
 
+    def perform_create(self, serializer):
+        audit.log_create(self.request.user, serializer.save())
+
 
 class AdminBlogDetailView(_AdminContentMixin, generics.RetrieveUpdateDestroyAPIView):
     serializer_class = AdminBlogSerializer
     queryset = Blog.objects.select_related("category")
 
     def perform_update(self, serializer):
-        before = file_names(serializer.instance, ["image"])
+        before, snap = file_names(serializer.instance, ["image"]), audit.snapshot(serializer.instance)
         instance = serializer.save()
         delete_unused_files(Blog, ["image"], before - file_names(instance, ["image"]))
+        audit.log_update(self.request.user, instance, snap)
 
     def perform_destroy(self, instance):
-        files = file_names(instance, ["image"])
-        instance.delete()
-        delete_unused_files(Blog, ["image"], files)
+        instance.trash(self.request.user)  # image kept until it's deleted for good
+
+
+# Posts in the trash don't count.
+_LIVE_POSTS = Count("blogs", filter=Q(blogs__deleted_at__isnull=True))
 
 
 class AdminBlogCategoryListCreateView(_AdminContentMixin, generics.ListCreateAPIView):
     serializer_class = AdminBlogCategorySerializer
-    queryset = BlogCategory.objects.annotate(num_blogs=Count("blogs")).order_by("-appreciation_mark", "name")
+    queryset = BlogCategory.objects.annotate(num_blogs=_LIVE_POSTS).order_by("-appreciation_mark", "name")
+
+    def perform_create(self, serializer):
+        audit.log_create(self.request.user, serializer.save())
 
 
 class AdminBlogCategoryDetailView(_AdminContentMixin, generics.RetrieveUpdateDestroyAPIView):
     serializer_class = AdminBlogCategorySerializer
-    queryset = BlogCategory.objects.annotate(num_blogs=Count("blogs"))
+    queryset = BlogCategory.objects.annotate(num_blogs=_LIVE_POSTS)
 
     def destroy(self, request, *args, **kwargs):
-        # The FK cascades, so deleting a category with posts would silently
-        # delete those posts too — make the admin move or delete them first.
+        # A category's posts would disappear with it — make the admin move or
+        # delete them first (posts already in the trash don't count).
         category = self.get_object()
         if category.blogs.exists():
             return Response(
@@ -112,3 +122,10 @@ class AdminBlogCategoryDetailView(_AdminContentMixin, generics.RetrieveUpdateDes
                 status=status.HTTP_400_BAD_REQUEST,
             )
         return super().destroy(request, *args, **kwargs)
+
+    def perform_update(self, serializer):
+        snap = audit.snapshot(serializer.instance)
+        audit.log_update(self.request.user, serializer.save(), snap)
+
+    def perform_destroy(self, instance):
+        instance.trash(self.request.user)

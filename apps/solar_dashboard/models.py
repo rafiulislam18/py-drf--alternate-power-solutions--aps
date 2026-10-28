@@ -2,8 +2,13 @@ import uuid
 from django.contrib.auth.models import User
 from django.db import models
 
+from apps.records.models import TrashableModel
 
-class SolarReport(models.Model):
+
+class SolarReport(TrashableModel):
+    """One client's solar report for a period. Deleting moves it to the trash
+    (apps.records): its share link stops working until it's restored."""
+
     uuid = models.UUIDField(default=uuid.uuid4, unique=True, db_index=True, editable=False)
     client = models.ForeignKey(
         User,
@@ -18,8 +23,19 @@ class SolarReport(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    trash_section = 'reports'
+    trash_label = 'Solar report'
+
     class Meta:
         ordering = ['-created_at']
+
+    def restore_blocked_reason(self):
+        # One report per client per period (see SolarReportSerializer.validate).
+        if self.client_id and SolarReport.objects.filter(
+                client_id=self.client_id, period_start=self.period_start, period_end=self.period_end).exists():
+            return (f'this client already has a newer report for {self.period_start:%d/%m/%Y} – '
+                    f'{self.period_end:%d/%m/%Y}. Delete that one first if you want this one back.')
+        return ''
 
     def __str__(self):
         if self.client:
@@ -29,10 +45,11 @@ class SolarReport(models.Model):
                 name = self.client.username
         else:
             name = '(no client)'
-        return f"{name} — {self.period_start} to {self.period_end}"
+        return f"{name} — {self.period_start:%d/%m/%Y} to {self.period_end:%d/%m/%Y}"
 
 
 class Site(models.Model):
+    audit_section = 'clients'  # audit history: staff need clients.view to see a site's history
     """A client's property — the one site list shared by solar reports and tickets.
 
     Holds the site's *identity* (name, address, whether it has a battery). Solar

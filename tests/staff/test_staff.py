@@ -57,9 +57,10 @@ def test_only_superusers_manage_staff(boss_api, client_and_site):
     res = boss_api.get('/staff/permissions/')
     assert res.status_code == 200
     keys = [s['key'] for s in res.data['sections']]
-    assert keys == ['reports', 'clients', 'tickets', 'quotes', 'estimates', 'whatsapp', 'services', 'projects', 'blogs']
+    assert keys == ['reports', 'clients', 'tickets', 'quotes', 'estimates', 'whatsapp', 'services', 'projects', 'blogs',
+                    'trash', 'audit']
     tickets = next(s for s in res.data['sections'] if s['key'] == 'tickets')
-    assert [p['action'] for p in tickets['perms']] == ['view', 'create', 'edit', 'delete', 'assign', 'chat_view', 'chat_send']
+    assert [p['action'] for p in tickets['perms']] == ['view', 'create', 'edit', 'assign', 'chat_view', 'chat_send']
     assert set(res.data['default']) == {c for c in catalogue.ALL_PERMS if c.endswith(('.view', '.chat_view'))}
 
 
@@ -137,7 +138,7 @@ def test_tickets_permissions(client_and_site):
     res = reader.post(f'{url}messages/', {'body': 'Hi'}, format='json')
     assert res.status_code == 403 and 'send chat messages' in res.data['detail']
     assert reader.patch(url, {'technician_name': 'Sam'}, format='json').status_code == 403
-    assert reader.delete(url).status_code == 403
+    assert reader.delete(url).status_code == 405  # tickets can't be deleted
 
     worker = api_for(make_staff('worker', perms=['tickets.view', 'tickets.edit', 'tickets.chat_view', 'tickets.chat_send']))
     assert worker.post(f'{url}messages/', {'body': 'On our way'}, format='json').status_code == 201
@@ -145,7 +146,7 @@ def test_tickets_permissions(client_and_site):
     res = worker.patch(url, {'status': 'in_progress', 'technician_name': 'Sam'}, format='json')
     assert res.status_code == 403 and 'assign technician' in res.data['detail']
 
-    boss = api_for(make_staff('lead', perms=['tickets.view', 'tickets.assign', 'tickets.create', 'tickets.delete']))
+    boss = api_for(make_staff('lead', perms=['tickets.view', 'tickets.assign', 'tickets.create']))
     assert boss.patch(url, {'technician_name': 'Sam'}, format='json').data['technician_name'] == 'Sam'
     res = boss.post('/client-portal/staff/tickets/', {'client': client.pk, 'site': site.pk, 'service': service.pk,
                                                       'title': 'Raised by APS', 'description': 'Phoned in'}, format='json')
@@ -158,8 +159,11 @@ def test_tickets_permissions(client_and_site):
     assert boss.post('/client-portal/staff/tickets/', {'client': client.pk, 'site': theirs.pk, 'service': service.pk,
                                                        'title': 'x', 'description': 'y'}, format='json').status_code == 400
     assert boss.post('/client-portal/staff/tickets/', {'site': site.pk, 'title': 'x'}, format='json').status_code == 400
-    assert boss.delete(f'/client-portal/staff/tickets/{new.pk}/').status_code == 204
-    assert not Ticket.objects.filter(pk=new.pk).exists()
+    # Tickets can't be deleted by anyone.
+    full = api_for(make_staff('full', perms=catalogue.ALL_PERMS))
+    assert full.delete(f'/client-portal/staff/tickets/{new.pk}/').status_code == 405
+    assert Ticket.objects.filter(pk=new.pk).exists()
+    assert 'tickets.delete' not in catalogue.ALL_PERMS
 
 
 def test_reports_clients_and_sites_permissions(client_and_site):
@@ -233,7 +237,7 @@ def test_existing_staff_keep_full_access_after_the_upgrade():
     old = make_staff('legacy')
     from django.apps import apps as django_apps
     migration.grant(django_apps, None)
-    assert set(StaffAccess.objects.get(user=old).permissions) == set(catalogue.ALL_PERMS)
+    assert StaffAccess.objects.get(user=old).permissions == migration.ALL_PERMS_AT_LAUNCH
 
 
 def test_sign_in_records_last_login():
@@ -242,3 +246,14 @@ def test_sign_in_records_last_login():
     assert login('logger').status_code == 200
     staff.refresh_from_db()
     assert staff.last_login is not None
+
+
+def test_existing_staff_get_the_new_trash_permission():
+    """Migration 0003: trash.view is a read permission, so existing accounts get it too."""
+    import importlib
+    migration = importlib.import_module('apps.staff.migrations.0003_trash_view_for_existing_staff')
+    old = make_staff('legacy', perms=['reports.view'])
+    from django.apps import apps as django_apps
+    migration.grant(django_apps, None)
+    migration.grant(django_apps, None)  # safe to run twice
+    assert StaffAccess.objects.get(user=old).permissions == ['reports.view', 'trash.view']
