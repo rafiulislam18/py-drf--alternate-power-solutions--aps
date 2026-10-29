@@ -20,6 +20,7 @@ once from the workbook with ``manage.py import_estimate_template <file.xlsx>``.
 """
 
 import io
+import logging
 import re
 import uuid
 from functools import partial
@@ -59,6 +60,8 @@ COMPANY_FIELDS = ['company_vat_number', 'company_phone', 'company_address', 'com
 ROOF_MAX_BYTES = 10 * 1024 * 1024
 ROOF_MAX_SIDE = 1800  # px — plenty for a half-page picture, keeps the PDF small
 ROOF_MAX_PIXELS = 40_000_000  # refuse before decoding (memory); a roof screenshot is a few megapixels
+
+logger = logging.getLogger(__name__)
 
 
 class _StaffView(APIView):
@@ -180,6 +183,20 @@ def _detail(request, est):
     if est.status == SolarEstimate.Status.ISSUED and est.snapshot:
         data['html'] = document.render_html(est.snapshot, editable=False, roof_image=_roof_url(request, est))
     return data
+
+
+def trash_preview_html(request, est):
+    """The proposal as it stands, for the Trash preview: the confirmed version,
+    or a draft rebuilt from its saved inputs ('' if that can't be built)."""
+    roof = _roof_url(request, est)
+    if est.status == SolarEstimate.Status.ISSUED and est.snapshot:
+        return document.render_html(est.snapshot, editable=False, roof_image=roof)
+    try:
+        _, doc = compute(est.inputs or {}, est.edits or {}, quote_number=est.number)
+        return document.render_html(doc, editable=False, roof_image=roof)
+    except Exception:  # an old or half-filled draft: the key figures still show
+        logger.warning('Trash preview: could not build estimate #%s', est.pk, exc_info=True)
+        return ''
 
 
 def _recommended_total(doc):

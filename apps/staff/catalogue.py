@@ -62,7 +62,7 @@ SECTIONS = [
     },
     {
         # Staff only ever see (and restore) what they deleted themselves; only
-        # superusers see all of it and delete things for good.
+        # superusers see and restore all of it. Nobody deletes things for good by hand.
         'key': 'trash', 'label': 'Trash',
         'perms': [('view', 'See & restore items you deleted')],
     },

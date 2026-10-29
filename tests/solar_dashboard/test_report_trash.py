@@ -96,3 +96,13 @@ class TestReportTrash:
         api_client.force_authenticate(reader)
         assert api_client.delete(f'/dashboard/reports/{report.uuid}/').status_code == 403
         assert not SolarReport.all_objects.get(pk=report.pk).in_trash
+
+
+@pytest.mark.django_db
+def test_trash_preview_shows_the_sites_and_totals(admin_api_client, client_user, site):
+    uuid = admin_api_client.post('/dashboard/reports/', _payload(client_user.id, site.id), format='json').data['uuid']
+    admin_api_client.delete(f'/dashboard/reports/{uuid}/')
+    pk = SolarReport.all_objects.get(uuid=uuid).pk
+    detail = admin_api_client.get(f'/records/trash/{TYPE}/{pk}/').data['detail']
+    assert detail['kind'] == 'solar_report' and detail['client'] == 'SunCo'
+    assert [s['name'] for s in detail['sites']] == ['Alpha'] and detail['totals']['solar_yield'] == 120.0

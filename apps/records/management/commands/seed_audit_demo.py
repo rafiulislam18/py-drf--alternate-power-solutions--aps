@@ -72,7 +72,7 @@ STORY = [
     (2, 14, 2, 'updated', 'tool_booking', 8, 'Cable locator · booked by Thandi',
      {'date_returned': _change('Date returned', '', '26 Oct 2026')}, 'Tool returned'),
     (1, 3, None, 'purged', 'job', 12, 'APS-012 · Other · old test job', {},
-     'Deleted for good automatically (in the trash too long)'),
+     'Deleted for good automatically after 90 days in the trash'),
     (1, 9, 1, 'updated', 'job', 41, 'APS-041 · Urban Growth · inverter fault',
      {'payment': _change('Payment status', 'Unpaid', 'Paid')}, ''),
     (1, 12, 0, 'updated', 'quote', 118, 'Quote · M. Jacobs · 8 kW solar',

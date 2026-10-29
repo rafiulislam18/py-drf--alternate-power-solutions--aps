@@ -13,6 +13,15 @@ class BlogCategory(TrashableModel):
     class Meta:
         verbose_name_plural = "Blog Categories"
 
+    def trash_preview(self, request):
+        """The Trash preview: the category and the posts of it that are in the trash."""
+        trashed = Blog.all_objects.filter(category=self, deleted_at__isnull=False).order_by('-date')
+        return {
+            'kind': 'blog_category',
+            'name': self.name, 'priority': self.appreciation_mark,
+            'posts_in_trash': [{'title': b.title, 'date': b.date} for b in trashed],
+        }
+
     def __str__(self):
         return f"{self.name}"
 
@@ -34,6 +43,16 @@ class Blog(TrashableModel):
 
     def __str__(self):
         return f"{self.title}"
+
+    def trash_preview(self, request):
+        """The Trash preview: the post as on the website."""
+        return {
+            'kind': 'blog_post',
+            'title': self.title, 'category': self.category.name, 'category_in_trash': self.category.in_trash,
+            'author': self.author, 'date': self.date, 'read_time': self.read_time,
+            'short_description': self.short_description, 'long_description': self.long_description,
+            'image': request.build_absolute_uri(self.image.url) if self.image else None,
+        }
 
     def restore_blocked_reason(self):
         if self.category.in_trash:

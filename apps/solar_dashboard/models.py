@@ -25,9 +25,32 @@ class SolarReport(TrashableModel):
 
     trash_section = 'reports'
     trash_label = 'Solar report'
+    audit_exclude = {'uuid'}  # an internal link id, not something people read
 
     class Meta:
         ordering = ['-created_at']
+
+    FIGURES = ['solar_yield', 'battery_charge', 'usable_solar', 'estimated_saving', 'used_from_battery',
+               'sell_to_grid_kwh', 'sell_to_grid_r', 'grid_consumption', 'total_consumption']
+
+    def trash_preview(self, request):
+        """The Trash preview: the client, the period and every site's figures with the totals."""
+        client, image = None, None
+        if self.client_id:
+            profile = getattr(self.client, 'client_profile', None)
+            image = request.build_absolute_uri(profile.image.url) if profile and profile.image else None
+            client = (profile.company_name if profile else '') or self.client.username
+        sites = [{'name': r.site.name if r.site_id else '(no site)',
+                  'has_battery': bool(r.site_id and r.site.has_battery),
+                  **{f: float(getattr(r, f) or 0) for f in self.FIGURES}}
+                 for r in self.sites.select_related('site').order_by('order', 'pk')]
+        return {
+            'kind': 'solar_report',
+            'client': client, 'client_image': image,
+            'report_date': self.report_date, 'period_start': self.period_start, 'period_end': self.period_end,
+            'sites': sites,
+            'totals': {f: round(sum(s[f] for s in sites), 2) for f in self.FIGURES},
+        }
 
     def restore_blocked_reason(self):
         # One report per client per period (see SolarReportSerializer.validate).

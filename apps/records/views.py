@@ -2,6 +2,7 @@
 Trash and audit history API (mounted at ``/records/``), staff only.
 
     GET   trash/                       items in the trash (?type=&q=&page=)
+    GET   trash/<type>/<id>/           one item's preview: its details, pictures, and whether it can come back
     POST  trash/<type>/<id>/restore/   put an item back
     GET   audit/                       the audit history (?kind=staff|client&actor=&action=&type=&q=&from=&to=&page=)
     GET   history/<type>/<id>/         one item's history (staff and client actions together)
@@ -30,6 +31,7 @@ from rest_framework.views import APIView
 from apps.core.roles import is_dashboard_admin
 from apps.staff.access import denied_message, has_perm
 
+from . import audit
 from .models import AuditLog, RestoreBlocked
 from .trash import retention_days, trash_types, type_label
 
@@ -173,22 +175,73 @@ class TrashListView(_StaffView):
         return res
 
 
-class TrashRestoreView(_StaffView):
-    def post(self, request, type_key, pk):
+class _TrashItemView(_StaffView):
+    """One trashed item this person may see: their own deletion (superusers: anyone's)."""
+
+    def get_trashed(self, request, type_key, pk):
+        """(model, obj), or (None, a Response refusing it)."""
         user = request.user
         if not has_perm(user, 'trash.view'):
-            return _forbidden(denied_message('trash.view'))
+            return None, _forbidden(denied_message('trash.view'))
         model = trash_types().get(type_key.lower())
         if model is None:
             raise Http404('Unknown item type.')
         if not _can_view_type(user, model):
-            return _forbidden(denied_message(f'{model.trash_section}.view'))
-        qs = model.all_objects.trashed()
+            return None, _forbidden(denied_message(f'{model.trash_section}.view'))
+        qs = model.all_objects.trashed().select_related('deleted_by')
         if not user.is_superuser:
             qs = qs.filter(deleted_by=user)
         obj = qs.filter(pk=pk).first()
         if obj is None:
             raise Http404('That item isn’t in the trash.')
+        return model, obj
+
+
+def _preview_rows(obj):
+    """The item's details as [{label, value}]: every filled-in field as text (the
+    same rendering as the audit history). The fallback for a type with no design."""
+    files = set(obj.trash_file_fields)
+    return [{'label': label, 'value': value} for name, (label, value) in audit.snapshot(obj).items()
+            if value and name not in files]
+
+
+class TrashPreviewView(_TrashItemView):
+    def get(self, request, type_key, pk):
+        model, obj = self.get_trashed(request, type_key, pk)
+        if model is None:
+            return obj
+        keep = retention_days()
+        purge_on = obj.deleted_at + timedelta(days=keep)
+        images = []
+        for name in obj.trash_file_fields:
+            file = getattr(obj, name)
+            if file:
+                images.append({'label': str(model._meta.get_field(name).verbose_name).capitalize(),
+                               'url': request.build_absolute_uri(file.url)})
+        return Response({
+            'type': model._meta.label_lower,
+            'type_label': type_label(model),
+            'id': obj.pk,
+            'name': str(obj),
+            'deleted_at': obj.deleted_at,
+            'deleted_by': _person(obj.deleted_by),
+            'purge_on': purge_on,
+            'days_left': max(0, (purge_on - timezone.now()).days),
+            # The type's own preview design (``{'kind': …}``), or None → show ``fields`` / ``images``.
+            'detail': obj.trash_preview(request) if hasattr(obj, 'trash_preview') else None,
+            'fields': _preview_rows(obj),
+            'images': images,
+            # Why it can't come back right now (e.g. its service is in the trash), or ''.
+            'restore_blocked': obj.restore_blocked_reason(),
+        })
+
+
+class TrashRestoreView(_TrashItemView):
+    def post(self, request, type_key, pk):
+        model, obj = self.get_trashed(request, type_key, pk)
+        if model is None:
+            return obj
+        user = request.user
         try:
             obj.restore(user)
         except RestoreBlocked as exc:

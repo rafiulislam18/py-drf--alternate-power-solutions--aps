@@ -235,3 +235,11 @@ def test_delete_moves_to_trash_and_keeps_the_number(staff, catalogue):
 
     res = staff.post(f'/records/trash/solar_estimates.solarestimate/{first}/restore/')
     assert res.status_code == 200 and staff.get(f'{BASE}{first}/').data['number'] == 'APS-PRJ-2610-MAR-001'
+
+
+def test_trash_preview_shows_the_proposal(staff, catalogue):
+    pk = staff.post(BASE, {'inputs': inputs()}, format='json').data['id']
+    staff.delete(f'{BASE}{pk}/')
+    detail = staff.get(f'/records/trash/solar_estimates.solarestimate/{pk}/').data['detail']
+    assert detail['kind'] == 'solar_estimate' and detail['client_name'] == 'Test Trust' and detail['status'] == 'draft'
+    assert 'Test Trust' in detail['html'] and 'class="pen"' not in detail['html']  # read-only document

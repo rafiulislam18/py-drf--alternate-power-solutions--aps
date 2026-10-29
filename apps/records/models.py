@@ -60,7 +60,9 @@ class TrashableModel(models.Model):
     history. ``trash_label`` names the type on the Trash page ("Job").
     ``str(obj)`` is the item's name in the trash and the audit history.
     A subclass that has uniqueness rules or a trashable parent overrides
-    ``restore_blocked_reason``. ``trash_file_fields`` names its uploaded-file
+    ``restore_blocked_reason``. ``trash_preview(request)`` (optional) returns
+    the data for the type's own Trash preview design — ``{'kind': '<type>', …}``;
+    without it the preview lists the fields as text. ``trash_file_fields`` names its uploaded-file
     fields: the files stay while the item is in the trash and are removed
     (when nothing else uses them) once it's deleted for good.
     """
@@ -120,8 +122,9 @@ class TrashableModel(models.Model):
     def delete_forever(self):
         """Remove the row for good. Only the automatic clean-up calls this — there
         is deliberately no way for a person to do it (see the docs)."""
+        days = int(getattr(settings, 'TRASH_RETENTION_DAYS', 90))
         AuditLog.record(None, AuditLog.PURGED, self,
-                        summary='Deleted for good automatically (in the trash too long)')
+                        summary=f'Deleted for good automatically after {days} days in the trash')
         files = self.stored_files()
         self.delete()
         for model, fields, names in files:

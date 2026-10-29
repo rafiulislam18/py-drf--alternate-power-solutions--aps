@@ -252,3 +252,28 @@ def test_demo_audit_data_is_local_only_and_removable(boss, thandi, settings):
 
     call_command('seed_audit_demo', '--clear')
     assert list(AuditLog.objects.all()) == [real]  # only the demo rows went
+
+
+# ── trash preview ────────────────────────────────────────────────────────────
+
+def test_trash_preview_shows_the_details_and_follows_the_same_rules(boss, thandi):
+    from datetime import date as d
+    mine = Widget.objects.create(name='Geyser COC', status='done', amount=Decimal('1500'), due=d(2026, 11, 3))
+    theirs = Widget.objects.create(name='theirs')
+    mine.trash(thandi)
+    theirs.trash(boss)
+
+    res = api_for(thandi).get(f'{TRASH}records_testapp.widget/{mine.pk}/')
+    assert res.status_code == 200
+    assert res.data['name'] == 'Geyser COC' and res.data['deleted_by']['name'] == 'Thandi'
+    assert res.data['days_left'] == 89 and res.data['restore_blocked'] == ''
+    fields = {f['label']: f['value'] for f in res.data['fields']}
+    assert fields == {'Name': 'Geyser COC', 'Status': 'Done', 'Amount': '1500', 'Due': '03 Nov 2026', 'Paid': 'No'}
+
+    # Same visibility as restoring: not someone else's (unless superuser), not a live item.
+    assert api_for(thandi).get(f'{TRASH}records_testapp.widget/{theirs.pk}/').status_code == 404
+    assert api_for(boss).get(f'{TRASH}records_testapp.widget/{mine.pk}/').status_code == 200
+    live = Widget.objects.create(name='live')
+    assert api_for(boss).get(f'{TRASH}records_testapp.widget/{live.pk}/').status_code == 404
+    assert api_for(make_staff('notrash', perms=['reports.view'])).get(
+        f'{TRASH}records_testapp.widget/{mine.pk}/').status_code == 403

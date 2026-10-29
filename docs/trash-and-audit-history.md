@@ -18,6 +18,7 @@ Deleting something in the dashboard never deletes it straight away. It goes to t
 - Items are **deleted for good automatically after 90 days** in the trash (daily job at 03:00). The audit history records this as "System".
 - The **Trash** permission is **on by default** for every staff account. A superuser can switch it off per person on **Administration → Staff accounts**.
 - A restored item goes back exactly where it was, with everything it had.
+- Clicking an item in the Trash opens a **preview** in that type's own design (a report's site figures, an estimate's proposal pages, a post or project as on the website, a category's trashed posts), with its history, before restoring. The preview follows the same rules: you only preview what you could restore.
 - An item can't be restored while its parent is still in the trash (a project whose service is in the trash, a blog post whose category is in the trash). Restore the parent first.
 - Moving a **service** to the trash takes its projects with it; restoring the service brings those projects back.
 - A **solar report** can't be restored if a newer report now covers the same client and period.
@@ -52,5 +53,6 @@ There are two pages (sidebar sub-menu):
 ## Every new feature must
 
 1. Put deleted items in the trash: make the model a `TrashableModel` (with `trash_section` and `trash_label`) and call `obj.trash(request.user)` instead of `obj.delete()`.
+   Give it a Trash preview: `trash_preview(request)` on the model and a design in the dashboard's `components/dashboard/TrashPreviews.tsx`.
 2. Record every create, edit and other action in the audit history (`apps.records.audit`: `log_create`, `log_update`, `log`), for staff and client actions alike.
 3. Keep using `Model.objects` for normal lists (it hides trashed items) and `Model.all_objects` only where trashed items must be seen.

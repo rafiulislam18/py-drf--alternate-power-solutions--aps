@@ -162,3 +162,17 @@ class SolarEstimate(TrashableModel):
 
     def __str__(self):
         return self.number or f'Draft estimate #{self.pk}'
+
+    def trash_preview(self, request):
+        """The Trash preview: the key figures and the proposal itself, page by page."""
+        from .views import trash_preview_html  # the document is built in the views, as for the editor
+        by = self.created_by
+        return {
+            'kind': 'solar_estimate',
+            'number': self.number, 'status': self.status, 'status_label': self.get_status_display(),
+            'client_name': self.client_name, 'site_address': self.site_address,
+            'total_incl_vat': float(self.total_incl_vat) if self.total_incl_vat is not None else None,
+            'created_by': (by.get_full_name() or by.get_username()) if by else '',
+            'created_at': self.created_at, 'issued_at': self.issued_at,
+            'html': trash_preview_html(request, self),
+        }

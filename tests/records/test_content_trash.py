@@ -109,3 +109,39 @@ def test_content_changes_are_in_the_audit_history(boss):
     assert [e.action for e in entries] == ['created', 'updated', 'deleted']
     assert entries[1].changes == {'name': {'label': 'Name', 'old': 'News', 'new': 'EV news'}}
     assert all(e.section == 'blogs' and e.actor_role == 'staff' for e in entries)
+
+
+def test_preview_says_what_went_with_it_and_why_it_cant_come_back(boss):
+    api = api_for(boss)
+    svc = _service()
+    project = _project(svc, 'Roof install')
+    api.delete(f'/services-projects/admin/services/{svc.pk}/')
+
+    res = api.get(f'/records/trash/services_and_projects.service/{svc.pk}/')
+    detail = res.data['detail']
+    assert detail['kind'] == 'service' and detail['title'] == 'Solar'
+    assert [p['title'] for p in detail['projects']] == ['Roof install']
+    assert res.data['images'][0]['url'].endswith('services/x.jpg')
+
+    res = api.get(f'/records/trash/services_and_projects.project/{project.pk}/')
+    assert 'Restore the service first' in res.data['restore_blocked']
+
+
+def test_each_type_has_its_own_preview(boss):
+    api = api_for(boss)
+    cat = BlogCategory.objects.create(name='Tips')
+    post = _post(cat)
+    api.delete(f'/blogs/admin/posts/{post.pk}/')
+    detail = api.get(f'/records/trash/blog.blog/{post.pk}/').data['detail']
+    assert detail['kind'] == 'blog_post' and detail['category'] == 'Tips' and detail['read_time'] == '3 min'
+    assert detail['image'].endswith('blogs/x.jpg')
+
+    api.delete(f'/blogs/admin/categories/{cat.pk}/')
+    detail = api.get(f'/records/trash/blog.blogcategory/{cat.pk}/').data['detail']
+    assert detail['kind'] == 'blog_category' and [p['title'] for p in detail['posts_in_trash']] == ['Load shedding tips']
+
+    svc = _service()
+    project = _project(svc, 'Roof install')
+    api.delete(f'/services-projects/admin/services/{svc.pk}/')
+    detail = api.get(f'/records/trash/services_and_projects.project/{project.pk}/').data['detail']
+    assert detail['kind'] == 'project' and detail['service_in_trash'] is True and len(detail['images']) == 1
