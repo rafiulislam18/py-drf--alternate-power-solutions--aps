@@ -57,6 +57,10 @@ class Job(TrashableModel):
         PAID = 'paid', 'Paid'
         DEPOSIT = 'deposit', 'Paid deposit'
         UNPAID = 'unpaid', 'Unpaid'
+        NO_CHARGE = 'no_charge', 'No charge'
+
+    # Nothing more to collect.
+    SETTLED = (Payment.PAID, Payment.NO_CHARGE)
 
     FINISHED = (Status.DONE, Status.INVOICED)
     # Only these get the age colours; the rest are parked or closed.
@@ -79,7 +83,8 @@ class Job(TrashableModel):
     coc_issued = models.DateField('COC issued', null=True, blank=True)
     invoice = models.CharField('invoiced', max_length=100, blank=True)  # invoice no. or a note: "INV-02414", "No charge"
     assigned_to = models.ManyToManyField(settings.AUTH_USER_MODEL, blank=True, related_name='assigned_jobs')
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.OPEN, db_index=True)
+    # Blank = no status yet (old sheet rows); listed last and never coloured.
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.OPEN, blank=True, db_index=True)
     payment = models.CharField('payment status', max_length=10, choices=Payment.choices, blank=True, db_index=True)
     completion_date = models.DateField(null=True, blank=True)
     # Empty only on jobs imported from the sheet that never had one.
@@ -90,11 +95,14 @@ class Job(TrashableModel):
     # When the daily alerts last emailed about this job (task 5).
     unpaid_alert_at = models.DateTimeField(null=True, blank=True, editable=False)
     stale_alert_at = models.DateTimeField(null=True, blank=True, editable=False)
+    # Brought in from the Operations sheet by ``manage.py import_jobs_sheet``.
+    imported_from_sheet = models.BooleanField(default=False, editable=False)
 
     trash_section = 'jobs'
     trash_label = 'Job'
     # Stamps the system moves on every change / alert — not something people edit.
-    audit_exclude = {'number', 'date_added', 'last_updated', 'created_by', 'unpaid_alert_at', 'stale_alert_at'}
+    audit_exclude = {'number', 'date_added', 'last_updated', 'created_by', 'unpaid_alert_at', 'stale_alert_at',
+                     'imported_from_sheet'}
 
     class Meta:
         ordering = [models.F('date_added').desc(nulls_last=True), '-last_updated', '-number']

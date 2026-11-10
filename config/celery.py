@@ -18,6 +18,9 @@ app.autodiscover_tasks([
     'apps.quote_sheet',
     'apps.solar_dashboard',
     'apps.gas_guard.alerts',
+    'apps.jobs',             # job assignment emails
+    'apps.client_portal',    # ticket chat digests + new-ticket alerts (were missing)
+    'apps.records',          # daily trash clean-up (was missing)
     # 'apps.otherapp',    # if you have more
 ])
 

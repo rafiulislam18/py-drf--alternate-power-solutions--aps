@@ -16,7 +16,8 @@ Operations jobs API (mounted at ``/jobs/``) — staff only, per permission
     PATCH  /jobs/categories/<id>/  rename / reorder / switch off (jobs.settings) - never deleted
 
 Any change to a job (field, assigned staff, comment) moves its "last updated"
-and is written to the audit history.
+and is written to the audit history. People newly assigned get an email
+(apps.jobs.emails).
 """
 
 import logging
@@ -38,6 +39,7 @@ from apps.staff.permissions import HasDashboardPerm
 from apps.solar_dashboard.models import Site
 from utils.exceptions import custom_exception_handler
 
+from .emails import queue_assignment_emails
 from .models import Job, JobCategory, JobComment, JobSettings, format_job_id, staff_name
 from .serializers import (
     CommentSerializer, JobCategorySerializer, JobSettingsSerializer, JobWriteSerializer, client_label, client_queryset, comment_data,
@@ -50,9 +52,9 @@ PAGE_SIZE = 50
 STATUS_RANK = Case(*[When(status=s, then=Value(i)) for i, s in enumerate(Job.Status.values)],
                    default=Value(len(Job.Status.values)), output_field=IntegerField())
 NEWEST = [F('date_added').desc(nulls_last=True), '-last_updated', '-number']
-# Done / invoiced but not marked Paid (unpaid, paid deposit or not set) — waiting since the
+# Done / invoiced but not marked Paid or No charge (unpaid, paid deposit or not set) — waiting since the
 # completion date (or the last update when there's none), like the sheet's unpaid alert.
-UNPAID = Q(status__in=Job.FINISHED) & ~Q(payment=Job.Payment.PAID)
+UNPAID = Q(status__in=Job.FINISHED) & ~Q(payment__in=Job.SETTLED)
 UNPAID_SINCE = Case(When(UNPAID, then=Coalesce('completion_date', TruncDate('last_updated'))),
                     default=None, output_field=DateField())
 ORDERINGS = {
@@ -153,9 +155,11 @@ class JobListView(_JobView):
         # Counts per status for the filter, before the status filter itself.
         found = dict(qs.order_by().values_list('status').annotate(n=Count('id', distinct=True)))
         counts = {s: found.get(s, 0) for s in Job.Status.values}
+        counts['none'] = found.get('', 0)  # no status yet
         counts['all'] = sum(counts.values())
 
-        statuses = [s for s in (p.get('status') or '').split(',') if s in Job.Status.values]
+        statuses = [s if s != 'none' else '' for s in (p.get('status') or '').split(',')
+                    if s in Job.Status.values or s == 'none']
         if statuses:
             qs = qs.filter(status__in=statuses)
 
@@ -187,6 +191,7 @@ class JobListView(_JobView):
         with transaction.atomic():
             job.assigned_to.set(assignees)
             audit.log_create(request.user, job, summary=f'Assigned to {_names(assignees)}' if assignees else '')
+            queue_assignment_emails(job, assignees, request.user)
             if comment:
                 c = JobComment.objects.create(job=job, author=request.user, author_name=staff_name(request.user),
                                               body=comment)
@@ -234,6 +239,8 @@ class JobDetailView(_JobView):
         if assignees is not None and {u.pk for u in assignees} != {u.pk for u in old_assignees}:
             changes['assigned_to'] = audit.change('Assigned to', _names(old_assignees), _names(assignees))
             job.assigned_to.set(assignees)
+            before_ids = {u.pk for u in old_assignees}
+            queue_assignment_emails(job, [u for u in assignees if u.pk not in before_ids], request.user)
         if changes:
             job.last_updated = timezone.now()
             job.save()

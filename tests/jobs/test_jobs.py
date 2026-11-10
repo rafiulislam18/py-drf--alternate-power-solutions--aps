@@ -347,3 +347,42 @@ def test_sort_unpaid_finished_jobs_first(api):
     names = [r['client_name'] for r in api.get(JOBS, {'ordering': 'unpaid'}).data['results']]
     assert names == ['Not set', 'Unpaid', 'Deposit', 'Open', 'Paid']
     assert open_job and paid
+
+
+# ── assignment emails ────────────────────────────────────────────────────────
+
+def test_newly_assigned_people_get_an_email(api, boss, settings, mailoutbox, django_capture_on_commit_callbacks):
+    settings.EMAIL_BACKEND = 'django.core.mail.backends.locmem.EmailBackend'
+    lerenzo = make_staff('lerenzo', perms=['jobs.view'], first_name='Lerenzo')
+    lerenzo.email = 'lerenzo@aps.example'
+    lerenzo.save()
+    brian = make_staff('brian', perms=[], first_name='Brian')
+    brian.email = 'brian@aps.example'
+    brian.save()
+    no_email = make_staff('lucky', first_name='Lucky')
+    boss.email = 'boss@aps.example'
+    boss.save()
+
+    with django_capture_on_commit_callbacks(execute=True):
+        job = create(api, client_name='Kloof <Studios>', task='Install plugs', assigned_to=[lerenzo.pk, no_email.pk, boss.pk],
+                     scheduled_date='2026-11-12', scheduled_time='10h00')
+    # Lerenzo only: Lucky has no email, and the boss assigned himself.
+    assert [m.to for m in mailoutbox] == [['lerenzo@aps.example']]
+    mail = mailoutbox[0]
+    assert job['job_id'] in mail.subject and 'Kloof <Studios>' in mail.subject
+    assert 'Kloof &lt;Studios&gt;' in mail.body and 'Thu 12 Nov 2026, 10h00' in mail.body
+    assert f"/dashboard/jobs/{job['id']}" in mail.body  # he can open the Jobs page
+    assert 'Also on this job' in mail.body and 'Lucky' in mail.body
+
+    # Editing: only the newly added person; nobody when the team doesn't change.
+    url = f"{JOBS}{job['id']}/"
+    with django_capture_on_commit_callbacks(execute=True):
+        api.patch(url, {'assigned_to': [lerenzo.pk, brian.pk]}, format='json')
+        api.patch(url, {'task': 'Install 6 plugs'}, format='json')
+    assert [m.to for m in mailoutbox[1:]] == [['brian@aps.example']]
+    assert '/dashboard/jobs/' not in mailoutbox[1].body  # Brian has no jobs.view: no link
+
+    # Taken off before the email went: nothing sent.
+    from apps.jobs.emails import send_assignment_emails
+    api.patch(url, {'assigned_to': [lerenzo.pk]}, format='json')
+    assert send_assignment_emails(job['id'], [brian.pk], boss.pk) == 0
