@@ -12,6 +12,12 @@ Adding a permission: add it here, use it in the view (see
 
 SECTIONS = [
     {
+        'key': 'jobs', 'label': 'Operations — jobs',
+        'perms': [('view', 'View jobs'), ('create', 'Create jobs'), ('edit', 'Edit jobs'),
+                  ('assign', 'Assign staff to jobs'), ('comment', 'Comment on jobs'),
+                  ('delete', 'Delete jobs'), ('settings', 'Change job settings (colours & categories)')],
+    },
+    {
         'key': 'reports', 'label': 'Solar dashboard — reports',
         'perms': [('view', 'View reports'), ('create', 'Create reports'),
                   ('edit', 'Edit reports'), ('delete', 'Delete reports')],

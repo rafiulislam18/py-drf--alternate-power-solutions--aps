@@ -164,6 +164,8 @@ class AuditLog(models.Model):
         ('dismissed', 'Marked not a job'),
         ('undismissed', 'Un-dismissed'),
         ('exported', 'Exported'),
+        ('commented', 'Commented'),
+        ('comment_edited', 'Comment edited'),
     ]
 
     # Which side of the dashboard did it: the two Audit history pages.

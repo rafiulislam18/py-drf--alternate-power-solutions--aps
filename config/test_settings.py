@@ -60,6 +60,7 @@ INSTALLED_APPS = [
     'apps.solar_estimates',
     'apps.staff',
     'apps.records',
+    'apps.jobs',
     'tests.records.testapp',  # test-only trashable models
 
     # Gas Guard apps — required so config.urls (which eagerly wires the

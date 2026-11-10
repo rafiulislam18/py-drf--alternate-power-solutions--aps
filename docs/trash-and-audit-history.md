@@ -24,7 +24,9 @@ Deleting something in the dashboard never deletes it straight away. It goes to t
 - A **solar report** can't be restored if a newer report now covers the same client and period.
 - In the **Django admin**, trashable items have a "Not in trash / In trash / All" filter and **Move to trash** / **Restore** actions. Django's normal delete is switched off.
 
-What goes to the trash today: solar reports, solar estimates, services, projects, blog posts, blog categories.
+What goes to the trash today: jobs, solar reports, solar estimates, services, projects, blog posts, blog categories.
+
+- A **job's** number (APS-###) stays taken while it's in the trash, so it's never reused. Its comments go and come back with it; comments themselves are never deleted (the author can edit their own).
 
 - A **solar estimate's** quotation number stays taken while it's in the trash, so it's never reused and a restore never clashes.
 

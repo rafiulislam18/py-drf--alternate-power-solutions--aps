@@ -167,6 +167,7 @@ INSTALLED_APPS = [
     'apps.solar_estimates',
     'apps.staff',
     'apps.records',
+    'apps.jobs',
 
     # ── Gas Guard apps (see the "GAS GUARD ONLY" settings block below) ──
     # Namespaced under apps/gas_guard/ with unique labels (gg_*) so their

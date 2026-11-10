@@ -57,7 +57,7 @@ def test_only_superusers_manage_staff(boss_api, client_and_site):
     res = boss_api.get('/staff/permissions/')
     assert res.status_code == 200
     keys = [s['key'] for s in res.data['sections']]
-    assert keys == ['reports', 'clients', 'tickets', 'quotes', 'estimates', 'whatsapp', 'services', 'projects', 'blogs',
+    assert keys == ['jobs', 'reports', 'clients', 'tickets', 'quotes', 'estimates', 'whatsapp', 'services', 'projects', 'blogs',
                     'trash', 'audit']
     tickets = next(s for s in res.data['sections'] if s['key'] == 'tickets')
     assert [p['action'] for p in tickets['perms']] == ['view', 'create', 'edit', 'assign', 'chat_view', 'chat_send']
@@ -257,3 +257,14 @@ def test_existing_staff_get_the_new_trash_permission():
     migration.grant(django_apps, None)
     migration.grant(django_apps, None)  # safe to run twice
     assert StaffAccess.objects.get(user=old).permissions == ['reports.view', 'trash.view']
+
+
+def test_existing_staff_get_the_new_jobs_view_permission():
+    """Migration 0004: jobs.view is a read permission, so existing accounts get it too."""
+    import importlib
+    migration = importlib.import_module('apps.staff.migrations.0004_jobs_view_for_existing_staff')
+    old = make_staff('legacy', perms=['reports.view'])
+    from django.apps import apps as django_apps
+    migration.grant(django_apps, None)
+    migration.grant(django_apps, None)  # safe to run twice
+    assert StaffAccess.objects.get(user=old).permissions == ['reports.view', 'jobs.view']
