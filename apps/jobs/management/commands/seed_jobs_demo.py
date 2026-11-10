@@ -24,7 +24,7 @@ from django.utils import timezone
 
 from apps.core.models import ClientProfile
 from apps.jobs.models import Job, JobCategory, JobComment, staff_name
-from apps.jobs.views import next_number
+from apps.jobs.services import next_number
 from apps.records.audit import change
 from apps.records.models import AuditLog, display_name
 from apps.staff.models import StaffAccess

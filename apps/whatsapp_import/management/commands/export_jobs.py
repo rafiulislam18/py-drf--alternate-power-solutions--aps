@@ -1,7 +1,7 @@
 """
-Push marked-as-job WhatsApp messages to the APS Open Jobs sheet, on demand.
+Turn marked-as-job WhatsApp messages into dashboard jobs, on demand.
 
-Same logic the nightly task and the review page's button run.
+Same logic the nightly task and the review page's "Create jobs" button run.
 
 Usage:
     python manage.py export_jobs
@@ -9,30 +9,19 @@ Usage:
 
 from django.core.management.base import BaseCommand
 
-from apps.whatsapp_import.jobs_export import (
-    ExportInProgress, JobsSheetConfigError, export_marked_jobs,
-)
+from apps.whatsapp_import.jobs_export import ExportInProgress, export_marked_jobs
 
 
 class Command(BaseCommand):
-    help = "Push marked-as-job messages to the APS Open Jobs Google Sheet."
+    help = "Turn marked-as-job WhatsApp messages into dashboard jobs."
 
     def handle(self, *args, **options):
         try:
             stats = export_marked_jobs()
-        except JobsSheetConfigError as exc:
-            self.stderr.write(self.style.ERROR(f"Jobs sheet not configured: {exc}"))
-            return
         except ExportInProgress:
-            self.stderr.write(self.style.ERROR("An export is already running; try again shortly."))
+            self.stderr.write(self.style.ERROR("Jobs are already being created; try again shortly."))
             return
-
-        if stats.get('error'):
-            self.stderr.write(self.style.ERROR(
-                f"Export error: {stats['error']} ({stats['found']} were pending)."
-            ))
-            return
-
         self.stdout.write(self.style.SUCCESS(
-            f"Found {stats['found']}, exported {stats['exported']}, skipped {stats['skipped']}."
+            f"Found {stats['found']}, created {stats['exported']} job(s)"
+            + (f": {', '.join(stats['job_ids'])}" if stats['job_ids'] else '.')
         ))

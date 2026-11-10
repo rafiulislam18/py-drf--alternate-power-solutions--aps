@@ -11,7 +11,7 @@ import logging
 from celery import shared_task
 
 from .drive import DriveConfigError
-from .jobs_export import ExportInProgress, JobsSheetConfigError, export_marked_jobs
+from .jobs_export import ExportInProgress, export_marked_jobs
 from .services import import_new_files
 
 logger = logging.getLogger(__name__)
@@ -39,28 +39,17 @@ def import_whatsapp_chats(self):
     return msg
 
 
-@shared_task(bind=True, max_retries=3, default_retry_delay=600)
-def export_jobs_to_sheet(self):
+@shared_task
+def create_jobs_from_whatsapp():
     """
-    Nightly safety-net: push any messages marked as jobs but not yet exported to
-    the APS Open Jobs sheet. The ops manager usually pushes on demand via the
-    review page; this sweeps up anything left over.
+    Nightly safety-net: turn any messages marked as jobs but not yet sent on
+    into dashboard jobs. The ops manager usually does it with "Create jobs" on
+    the review page; this sweeps up anything left over.
     """
     try:
         stats = export_marked_jobs()
-    except JobsSheetConfigError as exc:
-        logger.error("Jobs export skipped — sheet not configured: %s", exc)
-        return f"skipped: {exc}"
     except ExportInProgress:
-        # A manual push (or an earlier run) is already exporting — it will pick
-        # up the same pending messages, so skip rather than retry into it.
-        logger.info("Jobs export skipped — another export is already running.")
-        return "skipped: export already running"
-
-    if stats.get('error'):
-        # Delivery failed (network/sheet error) — retry; the messages stay
-        # pending so nothing is lost.
-        logger.warning("Jobs export had an error, will retry: %s", stats['error'])
-        raise self.retry(exc=Exception(stats['error']))
-
-    return f"Jobs export: {stats['exported']} pushed, {stats['found']} found."
+        # A button press is already doing it — it picks up the same messages.
+        logger.info("WhatsApp → jobs skipped — another run is in progress.")
+        return "skipped: already running"
+    return f"WhatsApp → jobs: {stats['exported']} created, {stats['found']} found."

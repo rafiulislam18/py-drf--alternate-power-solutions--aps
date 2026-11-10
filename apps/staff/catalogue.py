@@ -49,7 +49,7 @@ SECTIONS = [
     {
         'key': 'whatsapp', 'label': 'WhatsApp jobs',
         'perms': [('view', 'View messages'), ('edit', 'Mark messages as jobs / not a job'),
-                  ('export', 'Send marked jobs to the sheet')],
+                  ('export', 'Turn marked messages into jobs')],
     },
     {
         'key': 'services', 'label': 'Site content — services',

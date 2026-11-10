@@ -3,12 +3,12 @@ API for the WhatsApp message review page.
 
 Admin-only, behind the same JWT auth as the solar dashboard. The ops manager
 lists messages (filterable by chat), and marks/unmarks them as jobs — per
-message or in bulk. Marking stamps `marked_as_job_at`; a later step pushes
-newly-marked, not-yet-exported messages into the jobs spreadsheet.
+message or in bulk. Marking stamps `marked_as_job_at`; "Create jobs" (or the
+nightly run) then turns newly-marked messages into dashboard jobs (apps.jobs).
 
 One rule for job vs "not a job", single and bulk alike: marking a message as a
 job clears its dismissal, and dismissing clears its job flag. Messages already
-exported to the sheet are locked — their job flag never changes.
+turned into jobs are locked — their job flag never changes.
 """
 
 from django.db.models import Q
@@ -23,9 +23,7 @@ from apps.core.roles import get_role
 from apps.records import audit
 from apps.records.models import Target
 from apps.staff.access import denied_message, has_perm
-from .jobs_export import (
-    ExportInProgress, JobsSheetConfigError, export_marked_jobs, pending_jobs_qs,
-)
+from .jobs_export import ExportInProgress, export_marked_jobs, pending_jobs_qs
 from .models import WhatsAppMessage
 from .serializers import (
     BulkDismissSerializer, BulkMarkJobSerializer, DismissSerializer,
@@ -83,7 +81,7 @@ class WhatsAppMessageListView(APIView):
         if forbidden:
             return forbidden
 
-        qs = _filter_chat_and_search(WhatsAppMessage.objects.all(), request)
+        qs = _filter_chat_and_search(WhatsAppMessage.objects.select_related('job'), request)
 
         job_status = request.query_params.get('status', 'unmarked')
         if job_status == 'marked':
@@ -273,8 +271,8 @@ class WhatsAppMessageBulkDismissView(APIView):
 
 class WhatsAppJobsExportView(APIView):
     """
-    GET  — how many marked messages are pending push to the jobs sheet.
-    POST — push them now (the "Push to jobs sheet" button). Admin only.
+    GET  — how many marked messages are waiting to become jobs.
+    POST — turn them into dashboard jobs now (the "Create jobs" button).
     """
     permission_classes = [IsAuthenticated]
 
@@ -289,23 +287,16 @@ class WhatsAppJobsExportView(APIView):
         if forbidden:
             return forbidden
         try:
-            stats = export_marked_jobs()
-        except JobsSheetConfigError as exc:
-            return Response({'detail': str(exc)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            stats = export_marked_jobs(user=request.user)
         except ExportInProgress:
             return Response(
-                {'detail': 'An export is already running. Try again in a minute.'},
+                {'detail': 'Jobs are already being created. Try again in a minute.'},
                 status=status.HTTP_409_CONFLICT,
             )
-
-        if stats.get('error'):
-            return Response(
-                {'detail': f"Jobs sheet error: {stats['error']}", **stats},
-                status=status.HTTP_502_BAD_GATEWAY,
-            )
-        audit.log(request.user, 'exported', Target('whatsapp_export', timezone.now().strftime('%Y%m%d%H%M%S'),
-                                                   'Marked jobs → jobs sheet'),
-                  section='whatsapp', summary=', '.join(f'{k}: {v}' for k, v in stats.items()))
+        if stats['exported']:
+            audit.log(request.user, 'exported', Target('whatsapp_export', timezone.now().strftime('%Y%m%d%H%M%S'),
+                                                       'Marked messages → jobs'),
+                      section='whatsapp', summary=f"{stats['exported']} job(s): {', '.join(stats['job_ids'])}")
         return Response(stats, status=status.HTTP_200_OK)
 
 

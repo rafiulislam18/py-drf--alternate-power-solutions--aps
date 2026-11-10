@@ -24,7 +24,7 @@ import logging
 from datetime import datetime, time, timedelta
 from functools import partial
 
-from django.db import IntegrityError, transaction
+from django.db import transaction
 from django.db.models import Case, Count, DateField, F, IntegerField, Max, Prefetch, Q, Value, When
 from django.db.models.functions import Coalesce, TruncDate
 from django.shortcuts import get_object_or_404
@@ -41,6 +41,7 @@ from utils.exceptions import custom_exception_handler
 
 from .emails import queue_assignment_emails
 from .models import Job, JobCategory, JobComment, JobSettings, format_job_id, staff_name
+from .services import next_number, save_with_next_number
 from .serializers import (
     CommentSerializer, JobCategorySerializer, JobSettingsSerializer, JobWriteSerializer, client_label, client_queryset, comment_data,
     job_detail, job_row, staff_queryset,
@@ -79,11 +80,6 @@ def _jobs():
         Prefetch('assigned_to', queryset=staff_queryset().order_by('first_name', 'username')),
         Prefetch('comments', queryset=JobComment.objects.order_by('created_at', 'id')),
     )
-
-
-def next_number():
-    """One more than the highest number ever given (jobs in the trash included)."""
-    return (Job.all_objects.aggregate(n=Max('number'))['n'] or 0) + 1
 
 
 def watch_cutoff(thresholds):
@@ -178,16 +174,9 @@ class JobListView(_JobView):
         assignees = data.pop('assigned_to', [])
         comment = (data.pop('comment', '') or '').strip()
 
-        for attempt in range(5):  # two people saving at once may race for a number
-            try:
-                with transaction.atomic():
-                    job = Job(**data, number=next_number(), created_by=request.user)
-                    apply_status_rules(job, Job.Status.OPEN, 'completion_date' in data)
-                    job.save()
-                    break
-            except IntegrityError:
-                if attempt == 4:
-                    raise
+        job = Job(**data, created_by=request.user)
+        apply_status_rules(job, Job.Status.OPEN, 'completion_date' in data)
+        save_with_next_number(job)
         with transaction.atomic():
             job.assigned_to.set(assignees)
             audit.log_create(request.user, job, summary=f'Assigned to {_names(assignees)}' if assignees else '')

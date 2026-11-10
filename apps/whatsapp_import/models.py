@@ -53,10 +53,14 @@ class WhatsAppMessage(models.Model):
     # --- Jobs workflow (set by the ops manager on the review page) ---
     marked_as_job = models.BooleanField(default=False, db_index=True)
     marked_as_job_at = models.DateTimeField(null=True, blank=True)
-    # Set once the flagged message has been pushed to the jobs spreadsheet, so
-    # the export step only picks up newly-flagged, not-yet-exported messages.
+    # Set once the flagged message has been sent on as a job, so it's only ever
+    # sent once and is locked from then on. Until 10/11/2026 that meant a row in
+    # the Operations sheet; since then it's a dashboard job (``job``). The field
+    # names are kept from the sheet days.
     exported_to_jobs_sheet = models.BooleanField(default=False, db_index=True)
     exported_to_jobs_sheet_at = models.DateTimeField(null=True, blank=True)
+    job = models.ForeignKey('jobs.Job', on_delete=models.SET_NULL, null=True, blank=True,
+                            related_name='whatsapp_messages')
 
     # --- Triage: explicitly dismissed as "not a job" ---
     # Independent of marked_as_job. Dismissed messages are hidden from the default
