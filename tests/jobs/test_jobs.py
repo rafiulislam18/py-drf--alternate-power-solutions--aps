@@ -410,6 +410,10 @@ def test_summary_counts_every_job_and_matches_each_filter(api, boss):
         'on hold': create(api, client_name='on hold', status='on_hold'),
         'visit tomorrow': create(api, client_name='visit tomorrow', scheduled_date=str(today + timedelta(days=1))),
         'trashed': create(api, client_name='trashed', scheduled_date=str(today)),
+        # Booked for today but not happening: not a visit.
+        'cancelled visit': create(api, client_name='cancelled visit', status='cancelled', scheduled_date=str(today)),
+        'not accepted visit': create(api, client_name='not accepted visit', status='not_accepted',
+                                     scheduled_date=str(today)),
     }
     age(jobs['stale open']['id'], 10)
     age(jobs['three people']['id'], 30)
@@ -418,7 +422,7 @@ def test_summary_counts_every_job_and_matches_each_filter(api, boss):
     expected = {
         'attention': {'stale open', 'three people'},
         'awaiting_payment': {'done unpaid', 'done not set', 'deposit'},
-        'visits_today': {'visit today'},
+        'visits_today': {'visit today'},  # not 'cancelled visit' / 'not accepted visit' / 'trashed'
         'unassigned': {'stale open', 'visit tomorrow'},  # live only: not 'on hold' / 'done not set'
     }
     res = api.get(JOBS).data

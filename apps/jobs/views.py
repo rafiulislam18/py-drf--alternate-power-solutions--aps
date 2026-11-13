@@ -98,6 +98,12 @@ def needs_attention(thresholds):
     return Q(status__in=Job.LIVE, last_updated__lt=watch_cutoff(thresholds))
 
 
+def visiting_today():
+    """Booked for today (local date). Cancelled and not-accepted jobs aren't
+    visited, so they don't count."""
+    return Q(scheduled_date=timezone.localdate()) & ~Q(status__in=(Job.Status.CANCELLED, Job.Status.NOT_ACCEPTED))
+
+
 def jobs_summary(thresholds):
     """The summary tiles: counts over every job (not in the trash), whatever
     the list is filtered by. Each matches its list filter. "Today" is the local
@@ -108,7 +114,7 @@ def jobs_summary(thresholds):
     return Job.objects.aggregate(
         attention=n(needs_attention(thresholds)),
         awaiting_payment=n(UNPAID),
-        visits_today=n(Q(scheduled_date=timezone.localdate())),
+        visits_today=n(visiting_today()),
         unassigned=n(UNASSIGNED),
     )
 
@@ -176,8 +182,8 @@ class JobListView(_JobView):
             qs = qs.filter(UNPAID)
         if p.get('unassigned'):  # live, nobody assigned
             qs = qs.filter(UNASSIGNED).distinct()
-        if p.get('visit') == 'today':  # scheduled for today (local date)
-            qs = qs.filter(scheduled_date=timezone.localdate())
+        if p.get('visit') == 'today':  # booked for today (local date), not cancelled / not accepted
+            qs = qs.filter(visiting_today())
 
         # Counts per status for the filter, before the status filter itself.
         found = dict(qs.order_by().values_list('status').annotate(n=Count('id', distinct=True)))
