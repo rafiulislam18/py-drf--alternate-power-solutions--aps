@@ -386,3 +386,86 @@ def test_newly_assigned_people_get_an_email(api, boss, settings, mailoutbox, dja
     from apps.jobs.emails import send_assignment_emails
     api.patch(url, {'assigned_to': [lerenzo.pk]}, format='json')
     assert send_assignment_emails(job['id'], [brian.pk], boss.pk) == 0
+
+
+# ── summary tiles: needs attention, awaiting payment, visits today, unassigned ─
+
+SUMMARY_FILTERS = {'attention': 'attention', 'awaiting_payment': 'awaiting_payment',
+                   'visits_today': 'visit', 'unassigned': 'unassigned'}
+
+
+def test_summary_counts_every_job_and_matches_each_filter(api, boss):
+    a, b = make_staff('anna'), make_staff('ben')
+    today = timezone.localdate()
+    jobs = {
+        'stale open': create(api, client_name='stale open'),
+        'three people': create(api, client_name='three people', status='in_progress', assigned_to=[boss.pk, a.pk, b.pk]),
+        'visit today': create(api, client_name='visit today', status='quote_sent', assigned_to=[a.pk],
+                              scheduled_date=str(today), scheduled_time='10h00 - 10h30'),
+        'done unpaid': create(api, client_name='done unpaid', status='done', payment='unpaid', assigned_to=[a.pk, b.pk]),
+        'done not set': create(api, client_name='done not set', status='done'),
+        'deposit': create(api, client_name='deposit', status='invoiced', payment='deposit'),
+        'paid': create(api, client_name='paid', status='invoiced', payment='paid'),
+        'no charge': create(api, client_name='no charge', status='done', payment='no_charge'),
+        'on hold': create(api, client_name='on hold', status='on_hold'),
+        'visit tomorrow': create(api, client_name='visit tomorrow', scheduled_date=str(today + timedelta(days=1))),
+        'trashed': create(api, client_name='trashed', scheduled_date=str(today)),
+    }
+    age(jobs['stale open']['id'], 10)
+    age(jobs['three people']['id'], 30)
+    assert api.delete(f"{JOBS}{jobs['trashed']['id']}/").status_code == 204
+
+    expected = {
+        'attention': {'stale open', 'three people'},
+        'awaiting_payment': {'done unpaid', 'done not set', 'deposit'},
+        'visits_today': {'visit today'},
+        'unassigned': {'stale open', 'visit tomorrow'},  # live only: not 'on hold' / 'done not set'
+    }
+    res = api.get(JOBS).data
+    assert res['summary'] == {k: len(v) for k, v in expected.items()}
+
+    for key, param in SUMMARY_FILTERS.items():
+        data = api.get(JOBS, {param: 'today' if param == 'visit' else 1}).data
+        ids = [r['id'] for r in data['results']]
+        assert len(ids) == len(set(ids)), f'{key}: duplicate rows'
+        assert {r['client_name'] for r in data['results']} == expected[key], key
+        assert data['summary'][key] == data['count'] == len(ids) == data['counts']['all'], key
+
+    # The tiles ignore the list's own filters.
+    filtered = api.get(JOBS, {'status': 'done', 'category': cat('Maintenance'), 'q': 'nothing like this'}).data
+    assert filtered['count'] == 0 and filtered['summary'] == res['summary']
+    # Filters combine with the rest (AND).
+    both = api.get(JOBS, {'unassigned': 1, 'attention': 1}).data
+    assert [r['client_name'] for r in both['results']] == ['stale open']
+    assert api.get(JOBS, {'visit': 'yesterday'}).data['count'] == len(jobs) - 1  # unknown value: no filter
+
+    row = next(r for r in res['results'] if r['client_name'] == 'visit today')
+    assert (row['scheduled_date'], row['scheduled_time']) == (today, '10h00 - 10h30')
+
+
+def test_unassigned_has_no_duplicates_whatever_the_number_of_assignees(api, boss):
+    people = [boss, make_staff('anna'), make_staff('ben'), make_staff('cara')]
+    for i, n in enumerate([0, 1, 3, 0, 4, 0]):
+        create(api, client_name=f'job {i}', assigned_to=[u.pk for u in people[:n]])
+    data = api.get(JOBS, {'unassigned': 1}).data
+    ids = [r['id'] for r in data['results']]
+    assert sorted(r['client_name'] for r in data['results']) == ['job 0', 'job 3', 'job 5']
+    assert data['summary']['unassigned'] == data['count'] == len(ids) == len(set(ids)) == 3
+    assert data['summary']['visits_today'] == 0
+
+
+def test_visits_today_uses_the_local_date(api, settings, monkeypatch):
+    """23:30 UTC on 13/11 is already 14/11 in South Africa."""
+    from datetime import datetime, timezone as dt_timezone
+    create(api, client_name='on the 13th', scheduled_date='2026-11-13')
+    create(api, client_name='on the 14th', scheduled_date='2026-11-14')
+    instant = datetime(2026, 11, 13, 23, 30, tzinfo=dt_timezone.utc)
+    monkeypatch.setattr(timezone, 'now', lambda: instant)
+
+    settings.TIME_ZONE = 'Africa/Johannesburg'
+    data = api.get(JOBS, {'visit': 'today'}).data
+    assert [r['client_name'] for r in data['results']] == ['on the 14th']
+    assert data['summary']['visits_today'] == 1
+
+    settings.TIME_ZONE = 'UTC'
+    assert [r['client_name'] for r in api.get(JOBS, {'visit': 'today'}).data['results']] == ['on the 13th']

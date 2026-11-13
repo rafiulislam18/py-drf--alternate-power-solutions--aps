@@ -62,6 +62,8 @@ def job_row(job, thresholds, today=None):
         'payment_label': job.get_payment_display() if job.payment else '',
         'date_added': job.date_added,
         'last_updated': job.last_updated,
+        'scheduled_date': job.scheduled_date,
+        'scheduled_time': job.scheduled_time,
         'age_days': age,
         'severity': severity,
         'comment_count': len(comments),

@@ -3,7 +3,10 @@ Operations jobs API (mounted at ``/jobs/``) — staff only, per permission
 (``apps.staff.catalogue`` section ``jobs``).
 
     GET    /jobs/                  list: ?status &category &payment &assigned=<id>|me|none
-                                   &attention=1 &q &ordering=default|stale|unpaid|newest|number &page
+                                   &attention=1 &awaiting_payment=1 &unassigned=1 &visit=today
+                                   &q &ordering=default|stale|unpaid|newest|number &page
+                                   (+ ``summary``: those four counts over ALL jobs, ignoring
+                                   the filters, for the summary tiles)
     POST   /jobs/                  create (jobs.create; + jobs.assign to assign people)
     GET    /jobs/<id>/             one job with its comments
     PATCH  /jobs/<id>/             edit (jobs.edit; jobs.assign for ``assigned_to``)
@@ -58,6 +61,8 @@ NEWEST = [F('date_added').desc(nulls_last=True), '-last_updated', '-number']
 UNPAID = Q(status__in=Job.FINISHED) & ~Q(payment__in=Job.SETTLED)
 UNPAID_SINCE = Case(When(UNPAID, then=Coalesce('completion_date', TruncDate('last_updated'))),
                     default=None, output_field=DateField())
+# Live work nobody has been given yet.
+UNASSIGNED = Q(assigned_to__isnull=True, status__in=Job.LIVE)
 ORDERINGS = {
     'default': [STATUS_RANK, *NEWEST],     # the sheet's daily sort (no Date Added -> by Last Updated)
     'stale': ['last_updated', 'number'],   # longest without an update first
@@ -86,6 +91,26 @@ def watch_cutoff(thresholds):
     """Jobs last updated before this are ``watch_days`` or more days old (by local date)."""
     day = timezone.localdate() - timedelta(days=thresholds.watch_days - 1)
     return timezone.make_aware(datetime.combine(day, time.min))
+
+
+def needs_attention(thresholds):
+    """Live jobs at "watch" or worse."""
+    return Q(status__in=Job.LIVE, last_updated__lt=watch_cutoff(thresholds))
+
+
+def jobs_summary(thresholds):
+    """The summary tiles: counts over every job (not in the trash), whatever
+    the list is filtered by. Each matches its list filter. "Today" is the local
+    date (TIME_ZONE, Africa/Johannesburg). Distinct counts, as the unassigned
+    test joins the assignees."""
+    def n(q):
+        return Count('id', filter=q, distinct=True)
+    return Job.objects.aggregate(
+        attention=n(needs_attention(thresholds)),
+        awaiting_payment=n(UNPAID),
+        visits_today=n(Q(scheduled_date=timezone.localdate())),
+        unassigned=n(UNASSIGNED),
+    )
 
 
 def _names(users):
@@ -146,7 +171,13 @@ class JobListView(_JobView):
 
         thresholds = JobSettings.load()
         if p.get('attention'):  # live jobs at "watch" or worse
-            qs = qs.filter(status__in=Job.LIVE, last_updated__lt=watch_cutoff(thresholds))
+            qs = qs.filter(needs_attention(thresholds))
+        if p.get('awaiting_payment'):  # done / invoiced, not paid or no charge
+            qs = qs.filter(UNPAID)
+        if p.get('unassigned'):  # live, nobody assigned
+            qs = qs.filter(UNASSIGNED).distinct()
+        if p.get('visit') == 'today':  # scheduled for today (local date)
+            qs = qs.filter(scheduled_date=timezone.localdate())
 
         # Counts per status for the filter, before the status filter itself.
         found = dict(qs.order_by().values_list('status').annotate(n=Count('id', distinct=True)))
@@ -165,7 +196,8 @@ class JobListView(_JobView):
         page = min(max(1, _int(p.get('page')) or 1), pages)
         today = timezone.localdate()
         rows = [job_row(j, thresholds, today) for j in qs[(page - 1) * PAGE_SIZE: page * PAGE_SIZE]]
-        return Response({'results': rows, 'count': total, 'page': page, 'total_pages': pages, 'counts': counts})
+        return Response({'results': rows, 'count': total, 'page': page, 'total_pages': pages, 'counts': counts,
+                         'summary': jobs_summary(thresholds)})
 
     def post(self, request):
         serializer = JobWriteSerializer(data=request.data)
