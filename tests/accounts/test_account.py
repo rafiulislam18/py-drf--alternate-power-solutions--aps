@@ -188,6 +188,7 @@ class TestMe:
             'username': 'sunco', 'email': 'ops@sunco.co.za', 'email_verified': True, 'pending_email': '',
             'role': 'client', 'company_name': 'SunCo', 'phone': '021 000 0000', 'image': None,
             'is_superuser': False, 'permissions': [],   # clients hold no staff permissions
+            'appearance': None,                         # dashboard look not chosen yet
         }
 
     def test_staff_details(self, staff_user):

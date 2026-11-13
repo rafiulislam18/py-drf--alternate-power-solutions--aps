@@ -9,6 +9,7 @@ from rest_framework import serializers
 from apps.core.roles import get_role
 from apps.staff.access import permissions_for
 
+from .appearance import get_appearance
 from .login import identifier_taken
 
 
@@ -144,6 +145,8 @@ class AccountSerializer(serializers.Serializer):
             'company_name': profile.company_name if profile else '',
             'phone': profile.phone if profile else '',
             'image': profile.image.url if profile and profile.image else None,
+            # Dashboard theme etc. (None = never chosen); see apps.accounts.appearance.
+            'appearance': get_appearance(user),
         }
 
 

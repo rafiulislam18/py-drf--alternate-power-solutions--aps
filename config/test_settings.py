@@ -169,6 +169,7 @@ REST_FRAMEWORK = {
         'accounts_ip': '30/15m',
         'accounts_email': '5/30m',
         'accounts_password': '10/15m',
+        'accounts_appearance': '60/m',
         # Staff/client dashboard password login: per IP and per username.
         'dashboard_login_ip': '30/15m',
         'dashboard_login_user': '10/15m',

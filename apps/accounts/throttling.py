@@ -8,6 +8,8 @@ REST_FRAMEWORK['DEFAULT_THROTTLE_RATES'], windows like "5/30m"):
   (sign-up, resend verification, forgot password), so nobody can flood an inbox.
 - ``accounts_password`` — per signed-in account for change-password / change-email
   (both check the current password), so a stolen session can't brute-force it.
+- ``accounts_appearance`` — per signed-in account for saving the dashboard
+  appearance (the dashboard batches quick clicks into one save).
 """
 
 from apps.solar_dashboard.throttling import _WindowRateThrottle
@@ -33,6 +35,15 @@ class AccountsEmailThrottle(_WindowRateThrottle):
 
 class AccountsPasswordThrottle(_WindowRateThrottle):
     scope = 'accounts_password'
+
+    def get_cache_key(self, request, view):
+        if not (request.user and request.user.is_authenticated):
+            return None
+        return self.cache_format % {'scope': self.scope, 'ident': request.user.pk}
+
+
+class AccountsAppearanceThrottle(_WindowRateThrottle):
+    scope = 'accounts_appearance'
 
     def get_cache_key(self, request, view):
         if not (request.user and request.user.is_authenticated):

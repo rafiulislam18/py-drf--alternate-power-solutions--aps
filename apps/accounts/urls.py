@@ -11,4 +11,5 @@ urlpatterns = [
     path('password/change/', views.ChangePasswordView.as_view(), name='accounts-password-change'),
     path('email/change/', views.ChangeEmailView.as_view(), name='accounts-email-change'),
     path('me/', views.MeView.as_view(), name='accounts-me'),
+    path('me/appearance/', views.AppearanceView.as_view(), name='accounts-appearance'),
 ]

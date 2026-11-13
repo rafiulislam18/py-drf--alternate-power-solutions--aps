@@ -18,7 +18,11 @@ Public (throttled; replies never reveal whether an email has an account):
 
 Signed in:
 - ``GET/PATCH me/``               → account details; clients may edit
-  company_name and phone.
+  company_name and phone. Includes ``appearance`` (None until first saved).
+- ``PUT me/appearance/``          {theme?, font?, density?, text?, contrast?, motion?}
+  → saves how the dashboard looks for this account (staff and clients),
+  merged over what's saved; returns the full appearance. See
+  apps.accounts.appearance. Not written to the audit history.
 - ``POST password/change/``       {current_password, password, confirm_password}
   → new password; other sessions end, this one gets fresh tokens.
 - ``POST email/change/``          {email, current_password} → emails a
@@ -45,6 +49,7 @@ from apps.records.models import AuditLog
 from apps.subscription_portal.providers import find_subscriber
 from utils.exceptions import custom_exception_handler
 
+from .appearance import AppearanceSerializer, save_appearance
 from .emails import (
     send_account_exists_email,
     send_claim_account_email,
@@ -64,7 +69,7 @@ from .serializers import (
     check_password_strength,
     generate_username,
 )
-from .throttling import AccountsEmailThrottle, AccountsIpThrottle, AccountsPasswordThrottle
+from .throttling import AccountsAppearanceThrottle, AccountsEmailThrottle, AccountsIpThrottle, AccountsPasswordThrottle
 from .tokens import password_version, read_reset_token, read_verify_token, reset_state_matches
 
 logger = logging.getLogger('apps.accounts')
@@ -298,6 +303,19 @@ class MeView(_AccountsView):
             audit.log(request.user, AuditLog.UPDATED, audit.account(request.user), section='', changes=changes,
                       summary='Account details')
         return Response(AccountSerializer(request.user).data)
+
+
+class AppearanceView(_AccountsView):
+    """Save how the dashboard looks for this account (staff and clients). A
+    partial body is merged over what's saved. Not written to the audit history."""
+
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [AccountsAppearanceThrottle]
+
+    def put(self, request):
+        serializer = AppearanceSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        return Response(save_appearance(request.user, serializer.validated_data))
 
 
 class ChangePasswordView(_AccountsView):

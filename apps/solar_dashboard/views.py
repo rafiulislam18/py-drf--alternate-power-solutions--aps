@@ -20,6 +20,7 @@ from apps.records import audit
 from apps.records.models import AuditLog
 from apps.staff.access import denied_message, has_perm, permissions_for
 from .models import SolarReport, SiteData, Site
+from apps.accounts.appearance import get_appearance
 from apps.accounts.authentication import DashboardTokenRefreshSerializer
 from apps.accounts.login import resolve_login_identifier
 from apps.accounts.tokens import password_version
@@ -89,6 +90,8 @@ class DashboardTokenObtainPairSerializer(TokenObtainPairSerializer):
         data['email'] = user.email
         data['company_name'] = profile.company_name if profile else ''
         data['image'] = profile.image.url if profile and profile.image else None
+        # So the dashboard shows the account's theme straight after sign-in.
+        data['appearance'] = get_appearance(user)
         return data
 
 
