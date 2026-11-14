@@ -1,8 +1,13 @@
 from django.db import models
+
+from apps.records.models import ArchivableModel
 from apps.services_and_projects.models import Service
 
 
-class QuoteRequest(models.Model):
+class QuoteRequest(ArchivableModel):
+    # Archived by hand only, on the dashboard's Quote requests page.
+    audit_section = 'quotes'
+
     name = models.CharField(max_length=255)
     phone = models.CharField(max_length=20)
     email = models.EmailField()

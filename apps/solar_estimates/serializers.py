@@ -2,6 +2,8 @@ import re
 
 from rest_framework import serializers
 
+from apps.records.archive import archive_data
+
 from .models import CatalogueItem, EstimateSettings, SolarEstimate
 
 
@@ -155,11 +157,16 @@ class CatalogueItemSerializer(serializers.ModelSerializer):
 
 class EstimateListSerializer(serializers.ModelSerializer):
     created_by_name = serializers.SerializerMethodField()
+    archived_by = serializers.SerializerMethodField()
 
     class Meta:
         model = SolarEstimate
         fields = ['id', 'number', 'status', 'client_name', 'site_address', 'total_incl_vat', 'created_by_name',
-                  'created_at', 'updated_at', 'issued_at']
+                  'created_at', 'updated_at', 'issued_at', 'archived_at', 'archived_by', 'archive_reason',
+                  'archive_note']
+
+    def get_archived_by(self, obj):
+        return archive_data(obj)['archived_by']
 
     def get_created_by_name(self, obj):
         u = obj.created_by

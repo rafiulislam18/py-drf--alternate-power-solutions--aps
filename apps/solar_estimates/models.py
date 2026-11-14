@@ -14,7 +14,7 @@ Solar & battery budget estimates (staff dashboard → Sales → Solar estimates)
 from django.conf import settings
 from django.db import models
 
-from apps.records.models import TrashableModel
+from apps.records.models import ArchivableModel, TrashableModel
 
 from . import defaults
 
@@ -125,7 +125,7 @@ class CatalogueItem(models.Model):
         }
 
 
-class SolarEstimate(TrashableModel):
+class SolarEstimate(TrashableModel, ArchivableModel):
     class Status(models.TextChoices):
         DRAFT = 'draft', 'Draft'
         ISSUED = 'issued', 'Confirmed'
@@ -156,6 +156,7 @@ class SolarEstimate(TrashableModel):
 
     # Deleting moves it to the trash (apps.records). Its quotation number stays
     # taken while it's there, so a restore never clashes and no number is reused.
+    # Archived by hand only (Solar estimates page); a restore keeps the archive.
     trash_section = 'estimates'
     trash_label = 'Solar estimate'
     trash_file_fields = ('roof_image',)

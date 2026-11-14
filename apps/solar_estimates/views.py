@@ -3,11 +3,13 @@ Solar estimates API (staff only), mounted at /solar-estimates/. The document is
 the "Solar & Battery Backup – Proposal & Quotation".
 
     POST  preview/                 {inputs, edits, estimate_id?} → {html, editables, summary, warnings} (nothing saved)
-    GET   /  ?q=&status=&page=     saved proposals, newest first
+    GET   /  ?q=&status=&page=     saved proposals, newest first; active ones unless
+                                   &archived=1 / &include_archived=1 (+ counts, archived_count)
     POST  /                        {inputs, edits} → new draft
     GET   <id>/                    the proposal (+ its HTML once confirmed)
     PATCH <id>/                    {inputs, edits} (drafts only)
     DELETE <id>/
+    POST  <id>/archive/  <id>/unarchive/  bulk-archive/ {ids, archived}  (estimates.archive)
     POST  <id>/confirm/            {inputs?, edits?} → freezes the document, gives it its quotation number
     POST  <id>/reopen/             back to draft (to change a confirmed proposal)
     GET   <id>/pdf/                the confirmed proposal as a PDF
@@ -27,7 +29,7 @@ from functools import partial
 
 from django.core.files.base import ContentFile
 from django.db import IntegrityError, transaction
-from django.db.models import Q
+from django.db.models import Count, Q
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -37,7 +39,7 @@ from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.records import audit
+from apps.records import archive, audit
 from apps.records.models import AuditLog
 from apps.staff.permissions import HasDashboardPerm
 from utils.exceptions import custom_exception_handler
@@ -214,10 +216,15 @@ def _store(est, inputs, edits, doc):
 class EstimateListView(_StaffView):
     dashboard_perms = {'GET': 'estimates.view', 'POST': 'estimates.create'}
     def get(self, request):
-        qs = SolarEstimate.objects.select_related('created_by')
+        qs = archive.filter_archived(SolarEstimate.objects.select_related('created_by', 'archived_by'),
+                                     request.query_params)
         q = (request.query_params.get('q') or '').strip()[:100]
         if q:
             qs = qs.filter(Q(number__icontains=q) | Q(client_name__icontains=q) | Q(site_address__icontains=q))
+        # Per status for the tabs, before the status filter itself.
+        found = dict(qs.order_by().values_list('status').annotate(n=Count('id')))
+        counts = {s: found.get(s, 0) for s in SolarEstimate.Status.values}
+        counts['all'] = sum(counts.values())
         if request.query_params.get('status') in ('draft', 'issued'):
             qs = qs.filter(status=request.query_params['status'])
         total = qs.count()
@@ -228,7 +235,8 @@ class EstimateListView(_StaffView):
             page = 1
         rows = qs[(page - 1) * PAGE_SIZE: page * PAGE_SIZE]
         return Response({'results': EstimateListSerializer(rows, many=True).data, 'count': total,
-                         'page': page, 'total_pages': pages})
+                         'page': page, 'total_pages': pages, 'counts': counts,
+                         'archived_count': archive.archived_count(SolarEstimate.objects.all())})
 
     def post(self, request):
         inputs, edits = _validated(request.data)
@@ -268,6 +276,24 @@ class EstimateDetailView(_StaffView):
         est = get_object_or_404(SolarEstimate, pk=pk)
         est.trash(request.user)  # restorable from the Trash; roof picture kept until it's deleted for good
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class EstimateArchiveView(archive.ArchiveView):
+    section = 'estimates'
+
+    def get_item(self, pk):
+        return get_object_or_404(SolarEstimate.objects.select_for_update(), pk=pk)
+
+
+class EstimateUnarchiveView(EstimateArchiveView):
+    archived = False
+
+
+class EstimateBulkArchiveView(archive.BulkArchiveView):
+    section = 'estimates'
+
+    def find(self, ids):
+        return SolarEstimate.objects.select_for_update().in_bulk(ids)
 
 
 class EstimateConfirmView(_StaffView):

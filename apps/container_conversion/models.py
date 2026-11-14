@@ -1,5 +1,7 @@
 from django.db import models
 
+from apps.records.models import ArchivableModel
+
 
 class ContainerProject(models.Model):
     title = models.CharField(max_length=255)
@@ -22,7 +24,10 @@ class ContainerProject(models.Model):
         return self.title
 
 
-class ServiceRequest(models.Model):
+class ServiceRequest(ArchivableModel):
+    # A container conversion quote request: archived by hand only, on the
+    # dashboard's Quote requests page.
+    audit_section = 'quotes'
 
     # ---------- Contact Information ----------
     first_name = models.CharField(max_length=100)

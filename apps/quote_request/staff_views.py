@@ -1,5 +1,5 @@
 """
-Quote requests in the staff dashboard (read-only for now).
+Quote requests in the staff dashboard (read-only, apart from the archive).
 
 One list across the two places quotes come in from the public site:
 
@@ -10,16 +10,23 @@ One list across the two places quotes come in from the public site:
 - ``container`` — container conversion requests (``container_conversion.ServiceRequest``)
 
 ``GET /quote-request/staff/``  ?kind=general|solar|container  &status=new|handled
-&q=<name, email, phone or company>  &page=<n>  → newest first, 25 a page, plus a
-count per kind for the tabs.
+&q=<name, email, phone or company>  &page=<n>  &archived=1 | &include_archived=1
+→ newest first, 25 a page, plus a count per kind for the tabs (of the active
+requests, or the archived ones in the archive view) and ``archived_count``.
 
 ``GET /quote-request/staff/<kind>/<id>/`` → everything the customer entered,
 grouped into labelled sections.
+
+``POST /quote-request/staff/<kind>/<id>/archive/`` · ``…/unarchive/`` ·
+``POST /quote-request/staff/bulk-archive/ {ids: ["general-12", …], archived}``
+(``quotes.archive``). Quote requests are only ever archived by hand.
 
 "Handled" is the existing flag on each model: ``sent_quote`` (website form) and
 ``is_processed`` (container). Quotes are a few hundred rows, so the two tables
 are filtered in the database and merged in Python.
 """
+
+import re
 
 from django.db.models import Q, Value
 from django.db.models.functions import Concat
@@ -28,6 +35,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.container_conversion.models import ServiceRequest
+from apps.records import archive
 from apps.staff.permissions import HasDashboardPerm
 
 from .models import QuoteRequest, SolarQuoteDetails
@@ -36,6 +44,7 @@ SOLAR_SERVICE_TITLE = 'Solar PV System Design & Installation'
 PAGE_SIZE = 25
 KINDS = ('general', 'solar', 'container')
 KIND_LABELS = {'general': 'General quote', 'solar': 'Solar PV quote', 'container': 'Container conversion'}
+KEY_RE = re.compile(r'^(general|solar|container)-(\d{1,9})$')
 
 # Container add-ons, shown as one list instead of a Yes/No row each.
 CONTAINER_ADDONS = [
@@ -52,7 +61,7 @@ CONTAINER_ADDONS = [
 
 
 def _quote_qs(kind, q, status):
-    qs = QuoteRequest.objects.select_related('service')
+    qs = QuoteRequest.objects.select_related('service', 'archived_by')
     qs = qs.filter(service__title=SOLAR_SERVICE_TITLE) if kind == 'solar' else qs.exclude(service__title=SOLAR_SERVICE_TITLE)
     if status:
         qs = qs.filter(sent_quote=(status == 'handled'))
@@ -62,7 +71,7 @@ def _quote_qs(kind, q, status):
 
 
 def _container_qs(q, status):
-    qs = ServiceRequest.objects.all()
+    qs = ServiceRequest.objects.select_related('archived_by')
     if status:
         qs = qs.filter(is_processed=(status == 'handled'))
     if q:
@@ -86,6 +95,7 @@ def _quote_row(obj, kind):
         'created_at': obj.created_at,
         'handled': obj.sent_quote,
         'status_label': 'Quote sent' if obj.sent_quote else 'New',
+        **archive.archive_data(obj),
     }
 
 
@@ -103,6 +113,7 @@ def _container_row(obj):
         'created_at': obj.created_at,
         'handled': obj.is_processed,
         'status_label': 'Processed' if obj.is_processed else 'New',
+        **archive.archive_data(obj),
     }
 
 
@@ -123,16 +134,14 @@ class StaffQuoteListView(APIView):
         status = p.get('status') if p.get('status') in ('new', 'handled') else ''
         q = (p.get('q') or '').strip()[:100]
 
-        querysets = {
-            'general': _quote_qs('general', q, status),
-            'solar': _quote_qs('solar', q, status),
-            'container': _container_qs(q, status),
-        }
+        def listed(k, status):
+            qs = _container_qs(q, status) if k == 'container' else _quote_qs(k, q, status)
+            return archive.filter_archived(qs, p)
+
+        querysets = {k: listed(k, status) for k in KINDS}
         counts = {k: qs.count() for k, qs in querysets.items()}
         counts['all'] = sum(counts.values())
-        counts['new'] = (
-            _quote_qs('general', q, 'new').count() + _quote_qs('solar', q, 'new').count() + _container_qs(q, 'new').count()
-        )
+        counts['new'] = sum(listed(k, 'new').count() for k in KINDS)
 
         rows = []
         for k in ([kind] if kind else KINDS):
@@ -152,6 +161,8 @@ class StaffQuoteListView(APIView):
             'page': page,
             'total_pages': total_pages,
             'counts': counts,
+            'archived_count': archive.archived_count(QuoteRequest.objects.all())
+            + archive.archived_count(ServiceRequest.objects.all()),
         })
 
 
@@ -230,3 +241,49 @@ class StaffQuoteDetailView(APIView):
         if obj is None:
             raise Http404
         return Response(_quote_detail(obj, kind))
+
+
+def _find(kind, pk):
+    """The quote request behind a kind + id (archived or not), or None."""
+    if kind == 'container':
+        return ServiceRequest.objects.select_for_update().filter(pk=pk).first()
+    if kind in ('general', 'solar'):
+        return _quote_qs(kind, '', '').select_for_update(of=('self',)).filter(pk=pk).first()
+    return None
+
+
+class StaffQuoteArchiveView(archive.ArchiveView):
+    section = 'quotes'
+
+    def get_item(self, kind, pk):
+        obj = _find(kind, pk)
+        if obj is None:
+            raise Http404
+        obj.quote_kind = kind
+        return obj
+
+    def item_data(self, obj):
+        return {'key': f'{obj.quote_kind}-{obj.pk}', 'kind': obj.quote_kind, 'id': obj.pk,
+                **archive.archive_data(obj)}
+
+
+class StaffQuoteUnarchiveView(StaffQuoteArchiveView):
+    archived = False
+
+
+class StaffQuoteBulkArchiveView(archive.BulkArchiveView):
+    """ids are the list's keys: "general-12", "solar-3", "container-7"."""
+
+    section = 'quotes'
+
+    def clean_id(self, value):
+        return value if isinstance(value, str) and KEY_RE.match(value) else None
+
+    def find(self, keys):
+        found = {}
+        for key in keys:
+            kind, pk = KEY_RE.match(key).groups()
+            obj = _find(kind, int(pk))
+            if obj is not None:
+                found[key] = obj
+        return found
