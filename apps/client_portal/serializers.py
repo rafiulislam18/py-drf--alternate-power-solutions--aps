@@ -3,6 +3,7 @@ import os
 from django.utils import timezone
 from rest_framework import serializers
 
+from apps.records.archive import archive_data
 from apps.services_and_projects.models import Service
 from apps.solar_dashboard.models import Site
 
@@ -145,6 +146,10 @@ class TicketSerializer(serializers.ModelSerializer):
             'unread_count',
             'created_at',
             'updated_at',
+            # Archive: clients see when, and why if automatic, never who.
+            'archived_at',
+            'archive_reason',
+            'archive_note',
         ]
 
 
@@ -268,12 +273,17 @@ class StaffClientSerializer(serializers.Serializer):
 
 
 class StaffTicketSerializer(TicketSerializer):
-    """A ticket in the staff list: the client view plus its id and client."""
+    """A ticket in the staff list: the client view plus its id and client,
+    and who archived it."""
 
     client = StaffClientSerializer(read_only=True)
+    archived_by = serializers.SerializerMethodField()
 
     class Meta(TicketSerializer.Meta):
-        fields = [*TicketSerializer.Meta.fields, 'client']
+        fields = [*TicketSerializer.Meta.fields, 'client', 'archived_by']
+
+    def get_archived_by(self, obj):
+        return archive_data(obj)['archived_by']
 
 
 class StaffTicketDetailSerializer(_AttachmentsMixin, StaffTicketSerializer):

@@ -7,6 +7,10 @@ A ticket belongs to a client account (one dashboard login per client company,
 
 The old invite-only portal models (company, contacts, email sign-in codes and
 its own site list) were folded into dashboard accounts in migration 0004.
+
+Tickets are archived automatically when staff set them to completed or
+cancelled (``ArchivableModel``; rules in ``apps.records.archive``). Clients see
+their archived tickets but can't archive or unarchive.
 """
 
 import os
@@ -15,13 +19,15 @@ import uuid
 from django.contrib.auth.models import User
 from django.db import models
 
+from apps.records.models import ArchivableModel
+
 # Ticket references are shown as "APS-<offset + pk>" so the first ticket reads
 # APS-1001 rather than APS-1. Derived from the pk, so there's no counter to race.
 TICKET_NUMBER_OFFSET = 1000
 TICKET_PREFIX = 'APS-'
 
 
-class Ticket(models.Model):
+class Ticket(ArchivableModel):
     """A job request raised by a client account."""
 
     audit_section = 'tickets'
@@ -113,6 +119,14 @@ class Ticket(models.Model):
             if self.status in statuses:
                 return group
         return 'open'
+
+    def auto_archive_note(self):
+        if self.status in self.STATUS_GROUPS['completed']:
+            return self.get_status_display().lower()
+        return None
+
+    def auto_unarchive_note(self):
+        return f'status changed to {self.get_status_display()}'
 
     @classmethod
     def pk_from_reference(cls, text):

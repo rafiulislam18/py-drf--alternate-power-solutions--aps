@@ -19,7 +19,13 @@ urlpatterns = [
     path('staff/tickets/summary/', staff_views.StaffTicketSummaryView.as_view(), name='client-portal-staff-ticket-summary'),
     path('staff/tickets/unread/', staff_views.StaffTicketUnreadView.as_view(), name='client-portal-staff-ticket-unread'),
     path('staff/tickets/', staff_views.StaffTicketListView.as_view(), name='client-portal-staff-tickets'),
+    path('staff/tickets/bulk-archive/', staff_views.StaffTicketBulkArchiveView.as_view(),
+         name='client-portal-staff-ticket-bulk-archive'),
     path('staff/tickets/<int:pk>/', staff_views.StaffTicketDetailView.as_view(), name='client-portal-staff-ticket-detail'),
+    path('staff/tickets/<int:pk>/archive/', staff_views.StaffTicketArchiveView.as_view(),
+         name='client-portal-staff-ticket-archive'),
+    path('staff/tickets/<int:pk>/unarchive/', staff_views.StaffTicketUnarchiveView.as_view(),
+         name='client-portal-staff-ticket-unarchive'),
     path('staff/tickets/<int:pk>/messages/', chat_views.StaffTicketMessagesView.as_view(),
          name='client-portal-staff-ticket-messages'),
 ]

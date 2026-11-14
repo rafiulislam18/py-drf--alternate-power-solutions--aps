@@ -12,8 +12,11 @@ apps.accounts); every endpoint is for client accounts only (staff get 403):
   verified email (both APS subscription apps — see apps.subscription_portal).
 - ``GET  subscriptions/payments/``   → that email's confirmed payment history.
 - ``POST subscriptions/cancel/``     → cancel one plan {ref} at PayFast + locally.
-- ``GET  tickets/summary/`` → ticket counts per status group (the stat cards).
-- ``GET  tickets/``         → the client's tickets: filter, search, sort, paginate.
+- ``GET  tickets/summary/`` → ticket counts per status group (the stat cards),
+  of active tickets (``?archived=1``: archived ones) + ``archived_count``.
+- ``GET  tickets/``         → the client's tickets: filter, search, sort, paginate;
+  active ones unless ``?archived=1`` / ``?include_archived=1``. Clients see their
+  archived tickets but can't archive or unarchive them.
 - ``POST tickets/``         → raise a ticket (multipart, with up to 10 files).
 
 Every ticket and site query is scoped to ``request.user`` — a client can never
@@ -34,7 +37,7 @@ from rest_framework.response import Response
 
 from apps.core.models import ClientProfile
 from apps.core.permissions import IsDashboardClient
-from apps.records import audit
+from apps.records import archive, audit
 from apps.records.models import Target
 from apps.services_and_projects.models import Service
 from apps.solar_dashboard.models import Site
@@ -88,7 +91,9 @@ def filter_tickets(qs, params, *, extra_search=(), extra_ordering=None):
 
     Shared by the client list and the staff list; staff also search the
     client's name/email (``extra_search`` lookups) and can sort by client.
+    Active tickets only, unless ``archived`` / ``include_archived`` is set.
     """
+    qs = archive.filter_archived(qs, params)
     group = params.get('status_group')
     if group in Ticket.STATUS_GROUPS:
         qs = qs.filter(status__in=Ticket.STATUS_GROUPS[group])
@@ -145,13 +150,17 @@ def with_counts(qs, viewer_role):
     )
 
 
-def summarise_tickets(qs):
-    """Ticket counts per status group, plus 'all' (the stat cards)."""
-    counts = qs.aggregate(**{
+def summarise_tickets(qs, params=None):
+    """Ticket counts per status group, plus 'all' (the stat cards), of the
+    active tickets — or the archived ones for ``?archived=1`` — plus
+    ``archived_count`` for the Active | Archived switch."""
+    archived = archive.archive_view(params or {}) == 'archived'
+    counts = qs.filter(archived_at__isnull=not archived).aggregate(**{
         group: Count('id', filter=Q(status__in=statuses))
         for group, statuses in Ticket.STATUS_GROUPS.items()
     })
     counts['all'] = sum(counts.values())
+    counts['archived_count'] = archive.archived_count(qs)
     return counts
 
 
@@ -285,7 +294,7 @@ class SubscriptionCancelView(_ClientView, generics.GenericAPIView):
 
 class TicketSummaryView(_ClientView, generics.GenericAPIView):
     def get(self, request):
-        return Response(summarise_tickets(Ticket.objects.filter(client=request.user)))
+        return Response(summarise_tickets(Ticket.objects.filter(client=request.user), request.query_params))
 
 
 def unread_totals(messages):

@@ -119,7 +119,8 @@ def test_odd_params_do_not_break(staff, tickets):
 
 
 def test_summary_counts_all_or_one_client(staff, tickets, client_user):
-    assert staff.get(SUMMARY_URL).data == {'open': 1, 'in_progress': 1, 'waiting': 0, 'completed': 1, 'all': 3}
+    assert staff.get(SUMMARY_URL).data == {'open': 1, 'in_progress': 1, 'waiting': 0, 'completed': 1, 'all': 3,
+                                          'archived_count': 0}
     assert staff.get(SUMMARY_URL, {'client': client_user.pk}).data['all'] == 2
 
 

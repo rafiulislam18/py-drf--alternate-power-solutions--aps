@@ -13,7 +13,12 @@ dashboard's "Client tickets" pages. Staff only, per permission
 - ``GET   staff/tickets/<id>/``    → one ticket with its client and attachments.
 - ``PATCH staff/tickets/<id>/``    → {status?, technician_name?, notify_client?}.
   A status change emails the client (to a confirmed email only) unless
-  ``notify_client`` is false.
+  ``notify_client`` is false. Setting completed / cancelled archives the
+  ticket (``archive_event`` in the response; apps.records.archive).
+- ``POST  staff/tickets/<id>/archive/`` · ``…/unarchive/`` ·
+  ``staff/tickets/bulk-archive/`` {ids, archived} (``tickets.archive``).
+- Lists and the summary show active tickets unless ``?archived=1`` /
+  ``?include_archived=1``.
 
 Tickets are never deleted — by staff, clients or in the Django admin — so
 there is no DELETE.
@@ -26,11 +31,13 @@ import logging
 from functools import partial
 
 from django.contrib.auth.models import User
+from django.db import transaction
+from django.shortcuts import get_object_or_404
 from rest_framework import generics, serializers as drf_serializers, status
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 
-from apps.records import audit
+from apps.records import archive, audit
 from apps.staff.permissions import HasDashboardPerm
 from utils.exceptions import custom_exception_handler
 
@@ -66,7 +73,7 @@ class _StaffView:
         return partial(custom_exception_handler, keep_fields=True)
 
     def base_queryset(self):
-        qs = Ticket.objects.select_related('client__client_profile', 'site')
+        qs = Ticket.objects.select_related('client__client_profile', 'site', 'archived_by')
         client_id = _small_int(self.request.query_params.get('client'))
         if client_id is not None:
             qs = qs.filter(client_id=client_id)
@@ -75,7 +82,7 @@ class _StaffView:
 
 class StaffTicketSummaryView(_StaffView, generics.GenericAPIView):
     def get(self, request):
-        return Response(summarise_tickets(self.base_queryset()))
+        return Response(summarise_tickets(self.base_queryset(), request.query_params))
 
 
 class StaffTicketUnreadView(_StaffView, generics.GenericAPIView):
@@ -144,19 +151,23 @@ class StaffTicketDetailView(_StaffView, generics.RetrieveUpdateAPIView):
 
     def get_queryset(self):
         return with_counts(
-            Ticket.objects.select_related('client__client_profile', 'site').prefetch_related('attachments'),
+            Ticket.objects.select_related('client__client_profile', 'site', 'archived_by')
+            .prefetch_related('attachments'),
             'staff',
         )
 
+    @transaction.atomic
     def update(self, request, *args, **kwargs):
         ticket = self.get_object()
         old_status = ticket.status
+        met_before = archive.meets_auto_rule(ticket)
         serializer = StaffTicketUpdateSerializer(ticket, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         notify = serializer.validated_data.pop('notify_client', True)
         before = audit.snapshot(ticket)
         serializer.save()
         audit.log_update(request.user, ticket, before)
+        event = archive.apply_auto_archive(ticket, met_before, request.user) if ticket.status != old_status else None
         ticket_changed(ticket, 'status')
 
         emailed = False
@@ -166,4 +177,28 @@ class StaffTicketDetailView(_StaffView, generics.RetrieveUpdateAPIView):
                 emailed = send_status_update(ticket, old_status)
 
         fresh = self.get_queryset().get(pk=ticket.pk)
-        return Response({**self.get_serializer(fresh).data, 'client_emailed': emailed})
+        return Response({**self.get_serializer(fresh).data, 'client_emailed': emailed, 'archive_event': event})
+
+
+class StaffTicketArchiveView(archive.ArchiveView):
+    section = 'tickets'
+
+    def get_item(self, pk):
+        return get_object_or_404(Ticket.objects.select_for_update(), pk=pk)
+
+    def after_change(self, ticket):
+        ticket_changed(ticket, 'archive')
+
+
+class StaffTicketUnarchiveView(StaffTicketArchiveView):
+    archived = False
+
+
+class StaffTicketBulkArchiveView(archive.BulkArchiveView):
+    section = 'tickets'
+
+    def find(self, ids):
+        return Ticket.objects.select_for_update().in_bulk(ids)
+
+    def after_change(self, ticket):
+        ticket_changed(ticket, 'archive')

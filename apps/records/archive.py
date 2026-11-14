@@ -121,10 +121,14 @@ class ArchiveView(APIView):
     def item_data(self, obj):
         return {'id': obj.pk, **archive_data(obj)}
 
+    def after_change(self, obj):
+        """Hook: the item was archived / unarchived (e.g. tell open pages)."""
+
     @transaction.atomic
     def post(self, request, **kwargs):
         obj = self.get_item(**kwargs)
-        set_archived(obj, self.archived, request.user)
+        if set_archived(obj, self.archived, request.user):
+            self.after_change(obj)
         return Response(self.item_data(obj))
 
 
@@ -146,6 +150,9 @@ class BulkArchiveView(APIView):
     def clean_id(self, value):
         return value if isinstance(value, int) and not isinstance(value, bool) else None
 
+    def after_change(self, obj):
+        """Hook: the item was archived / unarchived (e.g. tell open pages)."""
+
     @transaction.atomic
     def post(self, request):
         data = request.data if isinstance(request.data, dict) else {}
@@ -159,4 +166,6 @@ class BulkArchiveView(APIView):
         keys = list(dict.fromkeys(k for k in map(self.clean_id, ids) if k is not None))
         items = self.find(keys)
         done = [k for k in keys if k in items and set_archived(items[k], archived, request.user)]
+        for key in done:
+            self.after_change(items[key])
         return Response({'done': done, 'skipped': [k for k in keys if k not in done]})

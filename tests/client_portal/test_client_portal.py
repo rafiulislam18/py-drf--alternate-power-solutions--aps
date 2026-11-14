@@ -401,11 +401,13 @@ def test_summary_counts(client_user, api, site, other_client, other_site):
     make_ticket(other_client, other_site, status=Ticket.Status.OPEN)
 
     res = api.get(SUMMARY_URL)
-    assert res.data == {'open': 1, 'in_progress': 2, 'waiting': 1, 'completed': 1, 'all': 5}
+    assert res.data == {'open': 1, 'in_progress': 2, 'waiting': 1, 'completed': 1, 'all': 5,
+                        'archived_count': 0}
 
 
 def test_summary_empty(api):
-    assert api.get(SUMMARY_URL).data == {'open': 0, 'in_progress': 0, 'waiting': 0, 'completed': 0, 'all': 0}
+    assert api.get(SUMMARY_URL).data == {'open': 0, 'in_progress': 0, 'waiting': 0, 'completed': 0, 'all': 0,
+                                         'archived_count': 0}
 
 
 # ── create ──────────────────────────────────────────────────────────────────
