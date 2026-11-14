@@ -28,7 +28,9 @@ from django.utils import timezone
 
 from .models import AuditLog, Target, display_name
 
-ALWAYS_EXCLUDED = {'id', 'deleted_at', 'deleted_by', 'password', 'last_login'}
+ALWAYS_EXCLUDED = {'id', 'deleted_at', 'deleted_by', 'password', 'last_login',
+                   # Archiving is logged as its own "Archived" / "Unarchived" entry.
+                   'archived_at', 'archived_by', 'archive_reason', 'archive_note'}
 _SKIP = object()  # a value that can't be shown as text (a JSON blob)
 
 

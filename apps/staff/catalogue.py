@@ -15,7 +15,8 @@ SECTIONS = [
         'key': 'jobs', 'label': 'Operations — jobs',
         'perms': [('view', 'View jobs'), ('create', 'Create jobs'), ('edit', 'Edit jobs'),
                   ('assign', 'Assign staff to jobs'), ('comment', 'Comment on jobs'),
-                  ('delete', 'Delete jobs'), ('settings', 'Change job settings (colours & categories)')],
+                  ('delete', 'Delete jobs'), ('archive', 'Archive & unarchive jobs'),
+                  ('settings', 'Change job settings (colours & categories)')],
     },
     {
         'key': 'reports', 'label': 'Solar dashboard — reports',
@@ -32,17 +33,18 @@ SECTIONS = [
         # No "delete": tickets are never deleted.
         'perms': [('view', 'View tickets'), ('create', 'Create tickets'),
                   ('edit', 'Change ticket status'),
-                  ('assign', 'Assign technician'),
+                  ('assign', 'Assign technician'), ('archive', 'Archive & unarchive tickets'),
                   ('chat_view', 'Read ticket chat'), ('chat_send', 'Send chat messages')],
     },
     {
         'key': 'quotes', 'label': 'Quote requests',
-        'perms': [('view', 'View quote requests')],
+        'perms': [('view', 'View quote requests'), ('archive', 'Archive & unarchive quote requests')],
     },
     {
         'key': 'estimates', 'label': 'Solar estimates',
         'perms': [('view', 'View proposals'), ('create', 'Create proposals'),
                   ('edit', 'Edit drafts & reopen proposals'), ('delete', 'Delete proposals'),
+                  ('archive', 'Archive & unarchive proposals'),
                   ('confirm', 'Confirm proposals & create the PDF'),
                   ('settings', 'Edit prices & settings')],
     },

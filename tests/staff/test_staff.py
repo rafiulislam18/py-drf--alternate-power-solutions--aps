@@ -60,7 +60,7 @@ def test_only_superusers_manage_staff(boss_api, client_and_site):
     assert keys == ['jobs', 'reports', 'clients', 'tickets', 'quotes', 'estimates', 'whatsapp', 'services', 'projects', 'blogs',
                     'trash', 'audit']
     tickets = next(s for s in res.data['sections'] if s['key'] == 'tickets')
-    assert [p['action'] for p in tickets['perms']] == ['view', 'create', 'edit', 'assign', 'chat_view', 'chat_send']
+    assert [p['action'] for p in tickets['perms']] == ['view', 'create', 'edit', 'assign', 'archive', 'chat_view', 'chat_send']
     assert set(res.data['default']) == {c for c in catalogue.ALL_PERMS if c.endswith(('.view', '.chat_view'))}
 
 
@@ -268,3 +268,20 @@ def test_existing_staff_get_the_new_jobs_view_permission():
     migration.grant(django_apps, None)
     migration.grant(django_apps, None)  # safe to run twice
     assert StaffAccess.objects.get(user=old).permissions == ['reports.view', 'jobs.view']
+
+
+def test_existing_staff_who_can_edit_get_the_new_archive_permissions():
+    """Migration 0005: <section>.archive goes to staff who can edit that section
+    (quote requests: who can view them); read-only staff don't get it."""
+    import importlib
+    migration = importlib.import_module('apps.staff.migrations.0005_archive_for_existing_staff')
+    editor = make_staff('editor', perms=['jobs.view', 'jobs.edit', 'tickets.edit', 'quotes.view', 'estimates.edit'])
+    reader = make_staff('reader', perms=['jobs.view', 'tickets.view', 'estimates.view'])
+    from django.apps import apps as django_apps
+    migration.grant(django_apps, None)
+    migration.grant(django_apps, None)  # safe to run twice
+    assert StaffAccess.objects.get(user=editor).permissions == [
+        'jobs.view', 'jobs.edit', 'tickets.edit', 'quotes.view', 'estimates.edit',
+        'jobs.archive', 'tickets.archive', 'quotes.archive', 'estimates.archive',
+    ]
+    assert StaffAccess.objects.get(user=reader).permissions == ['jobs.view', 'tickets.view', 'estimates.view']

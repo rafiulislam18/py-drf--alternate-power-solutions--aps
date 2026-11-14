@@ -7,6 +7,9 @@ Trash and audit history, shared by every dashboard module.
   ``all_objects`` sees everything. Nobody deletes anything for good by hand:
   only the daily clean-up (``apps.records.tasks``) does, once an item has been
   in the trash for ``TRASH_RETENTION_DAYS``.
+- ``ArchivableModel`` — an abstract base for items that can be archived
+  (finished, kept forever, hidden from the everyday lists). Not the trash:
+  archived items are never deleted. Rules and list filters: ``apps.records.archive``.
 - ``AuditLog`` — who did what, when, to which item, with old → new values,
   for staff and client actions alike (``actor_role``). Rows can only ever be
   added: editing or deleting one raises, here and (on PostgreSQL) in the
@@ -131,6 +134,69 @@ class TrashableModel(models.Model):
             delete_unused_files(model, fields, names)
 
 
+class ArchivableModel(models.Model):
+    """Base for anything the dashboard can archive: finished, kept forever,
+    hidden from the everyday lists. Unlike the trash, nothing archived is ever
+    deleted, and it can always be unarchived.
+
+    ``archive_reason`` says whether a person archived it or the type's auto
+    rule did (``auto_archive_note``); ``archive_note`` is the rule that matched
+    ("invoiced and paid"). The rules and the list filters are in
+    ``apps.records.archive``.
+    """
+
+    class Reason(models.TextChoices):
+        AUTO = 'auto', 'Automatically'
+        MANUAL = 'manual', 'By hand'
+
+    archived_at = models.DateTimeField(null=True, blank=True, db_index=True, editable=False)
+    archived_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+                                    editable=False, related_name='+')
+    archive_reason = models.CharField(max_length=6, choices=Reason.choices, blank=True, editable=False)
+    archive_note = models.CharField(max_length=100, blank=True, editable=False)
+
+    class Meta:
+        abstract = True
+
+    @property
+    def is_archived(self):
+        return self.archived_at is not None
+
+    def auto_archive_note(self):
+        """Why the auto rule archives this item ("invoiced and paid"), or None
+        when the rule isn't met (or the type is only archived by hand)."""
+        return None
+
+    def auto_unarchive_note(self):
+        """What took the item out of its auto rule ("payment changed to Unpaid")."""
+        return 'no longer finished'
+
+    _ARCHIVE_FIELDS = ['archived_at', 'archived_by', 'archive_reason', 'archive_note']
+
+    @transaction.atomic
+    def archive(self, user, reason=Reason.MANUAL, note=''):
+        if self.is_archived:
+            return
+        self.archived_at = timezone.now()
+        self.archived_by = user if getattr(user, 'is_authenticated', False) else None
+        self.archive_reason = reason
+        self.archive_note = note[:100]
+        self.save(update_fields=self._ARCHIVE_FIELDS)
+        summary = f'Archived automatically: {note}' if reason == self.Reason.AUTO else 'Archived'
+        AuditLog.record(user, 'archived', self, summary=summary)
+
+    @transaction.atomic
+    def unarchive(self, user, summary='Unarchived'):
+        if not self.is_archived:
+            return
+        self.archived_at = None
+        self.archived_by = None
+        self.archive_reason = ''
+        self.archive_note = ''
+        self.save(update_fields=self._ARCHIVE_FIELDS)
+        AuditLog.record(user, 'unarchived', self, summary=summary)
+
+
 class _AppendOnlyQuerySet(models.QuerySet):
     def update(self, **kwargs):
         raise PermissionDenied('Audit history can’t be changed.')
@@ -166,6 +232,8 @@ class AuditLog(models.Model):
         ('exported', 'Exported'),
         ('commented', 'Commented'),
         ('comment_edited', 'Comment edited'),
+        ('archived', 'Archived'),
+        ('unarchived', 'Unarchived'),
     ]
 
     # Which side of the dashboard did it: the two Audit history pages.

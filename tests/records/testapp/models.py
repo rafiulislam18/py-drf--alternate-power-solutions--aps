@@ -3,7 +3,7 @@
 from django.conf import settings
 from django.db import models
 
-from apps.records.models import TrashableModel
+from apps.records.models import ArchivableModel, TrashableModel
 
 
 class Widget(TrashableModel):
@@ -30,3 +30,21 @@ class Widget(TrashableModel):
 class WidgetNote(models.Model):
     widget = models.ForeignKey(Widget, on_delete=models.CASCADE, related_name='notes')
     text = models.CharField(max_length=100)
+
+
+class Gadget(TrashableModel, ArchivableModel):
+    """Archivable and trashable, with an auto rule: archived when it's done."""
+
+    status = models.CharField(max_length=10, default='open')
+
+    trash_section = 'reports'
+    trash_label = 'Gadget'
+
+    def __str__(self):
+        return f'Gadget {self.pk}'
+
+    def auto_archive_note(self):
+        return 'done' if self.status == 'done' else None
+
+    def auto_unarchive_note(self):
+        return f'status changed to {self.status}'
