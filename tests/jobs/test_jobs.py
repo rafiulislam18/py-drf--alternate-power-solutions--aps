@@ -344,7 +344,8 @@ def test_sort_unpaid_finished_jobs_first(api):
     today = timezone.localdate()
     for job, days in ((deposit, 3), (not_set, 20), (unpaid, 9)):
         Job.objects.filter(pk=job['id']).update(completion_date=today - timedelta(days=days))
-    names = [r['client_name'] for r in api.get(JOBS, {'ordering': 'unpaid'}).data['results']]
+    # The paid job is archived (done / invoiced + Paid), so include the archive.
+    names = [r['client_name'] for r in api.get(JOBS, {'ordering': 'unpaid', 'include_archived': 1}).data['results']]
     assert names == ['Not set', 'Unpaid', 'Deposit', 'Open', 'Paid']
     assert open_job and paid
 
@@ -441,7 +442,8 @@ def test_summary_counts_every_job_and_matches_each_filter(api, boss):
     # Filters combine with the rest (AND).
     both = api.get(JOBS, {'unassigned': 1, 'attention': 1}).data
     assert [r['client_name'] for r in both['results']] == ['stale open']
-    assert api.get(JOBS, {'visit': 'yesterday'}).data['count'] == len(jobs) - 1  # unknown value: no filter
+    # Unknown value: no filter (all but the trashed job and the archived paid one).
+    assert api.get(JOBS, {'visit': 'yesterday'}).data['count'] == len(jobs) - 2
 
     row = next(r for r in res['results'] if r['client_name'] == 'visit today')
     assert (row['scheduled_date'], row['scheduled_time']) == (today, '10h00 - 10h30')

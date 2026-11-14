@@ -5,12 +5,17 @@ Operations jobs API (mounted at ``/jobs/``) — staff only, per permission
     GET    /jobs/                  list: ?status &category &payment &assigned=<id>|me|none
                                    &attention=1 &awaiting_payment=1 &unassigned=1 &visit=today
                                    &q &ordering=default|stale|unpaid|newest|number &page
-                                   (+ ``summary``: those four counts over ALL jobs, ignoring
-                                   the filters, for the summary tiles)
+                                   &archived=1 (the archive) | &include_archived=1 (both)
+                                   (+ ``summary``: those four counts over ALL active jobs -
+                                   archived ones in the archive view - ignoring the filters,
+                                   for the summary tiles; + ``archived_count``)
     POST   /jobs/                  create (jobs.create; + jobs.assign to assign people)
     GET    /jobs/<id>/             one job with its comments
     PATCH  /jobs/<id>/             edit (jobs.edit; jobs.assign for ``assigned_to``)
     DELETE /jobs/<id>/             move to the trash (jobs.delete)
+    POST   /jobs/<id>/archive/     archive / unarchive (jobs.archive)
+    POST   /jobs/<id>/unarchive/
+    POST   /jobs/bulk-archive/     {ids, archived: true|false} (jobs.archive)
     POST   /jobs/<id>/comments/    add a comment (jobs.comment)
     PATCH  /jobs/<id>/comments/<c>/ edit your own comment (jobs.comment)
     GET    /jobs/options/          categories, statuses, staff, clients + sites, colour thresholds
@@ -20,7 +25,8 @@ Operations jobs API (mounted at ``/jobs/``) — staff only, per permission
 
 Any change to a job (field, assigned staff, comment) moves its "last updated"
 and is written to the audit history. People newly assigned get an email
-(apps.jobs.emails).
+(apps.jobs.emails). A create or edit that makes a job done / invoiced + Paid
+archives it (``archive_event`` in the response); see apps.records.archive.
 """
 
 import logging
@@ -36,7 +42,7 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.records import audit
+from apps.records import archive, audit
 from apps.records.models import AuditLog
 from apps.staff.permissions import HasDashboardPerm
 from apps.solar_dashboard.models import Site
@@ -81,7 +87,9 @@ def _int(value):
 
 
 def _jobs():
-    return Job.objects.select_related('category', 'client__client_profile', 'site', 'created_by').prefetch_related(
+    return Job.objects.select_related(
+        'category', 'client__client_profile', 'site', 'created_by', 'archived_by',
+    ).prefetch_related(
         Prefetch('assigned_to', queryset=staff_queryset().order_by('first_name', 'username')),
         Prefetch('comments', queryset=JobComment.objects.order_by('created_at', 'id')),
     )
@@ -104,14 +112,15 @@ def visiting_today():
     return Q(scheduled_date=timezone.localdate()) & ~Q(status__in=(Job.Status.CANCELLED, Job.Status.NOT_ACCEPTED))
 
 
-def jobs_summary(thresholds):
-    """The summary tiles: counts over every job (not in the trash), whatever
-    the list is filtered by. Each matches its list filter. "Today" is the local
-    date (TIME_ZONE, Africa/Johannesburg). Distinct counts, as the unassigned
-    test joins the assignees."""
+def jobs_summary(thresholds, archived=False):
+    """The summary tiles: counts over every active job (not in the trash) -
+    or every archived one in the archive view - whatever the list is filtered
+    by. Each matches its list filter. "Today" is the local date (TIME_ZONE,
+    Africa/Johannesburg). Distinct counts, as the unassigned test joins the
+    assignees."""
     def n(q):
         return Count('id', filter=q, distinct=True)
-    return Job.objects.aggregate(
+    return Job.objects.filter(archived_at__isnull=not archived).aggregate(
         attention=n(needs_attention(thresholds)),
         awaiting_payment=n(UNPAID),
         visits_today=n(visiting_today()),
@@ -152,7 +161,7 @@ class JobListView(_JobView):
 
     def get(self, request):
         p = request.query_params
-        qs = _jobs()
+        qs = archive.filter_archived(_jobs(), p)
         if _int(p.get('category')) is not None:
             qs = qs.filter(category_id=_int(p['category']))
         if p.get('payment') in Job.Payment.values:
@@ -203,7 +212,8 @@ class JobListView(_JobView):
         today = timezone.localdate()
         rows = [job_row(j, thresholds, today) for j in qs[(page - 1) * PAGE_SIZE: page * PAGE_SIZE]]
         return Response({'results': rows, 'count': total, 'page': page, 'total_pages': pages, 'counts': counts,
-                         'summary': jobs_summary(thresholds)})
+                         'summary': jobs_summary(thresholds, archive.archive_view(p) == 'archived'),
+                         'archived_count': archive.archived_count(Job.objects.all())})
 
     def post(self, request):
         serializer = JobWriteSerializer(data=request.data)
@@ -223,9 +233,10 @@ class JobListView(_JobView):
                 c = JobComment.objects.create(job=job, author=request.user, author_name=staff_name(request.user),
                                               body=comment)
                 audit.log(request.user, 'commented', job, summary=c.body)
+            event = archive.apply_auto_archive(job, False, request.user)
         logger.info(f'{request.user.username} created {job.job_id}')
-        return Response(job_detail(_jobs().get(pk=job.pk), JobSettings.load(), request.user),
-                        status=status.HTTP_201_CREATED)
+        data = job_detail(_jobs().get(pk=job.pk), JobSettings.load(), request.user)
+        return Response({**data, 'archive_event': event}, status=status.HTTP_201_CREATED)
 
 
 class JobDetailView(_JobView):
@@ -257,6 +268,7 @@ class JobDetailView(_JobView):
 
         before = audit.snapshot(job)
         old_status = job.status
+        met_before = archive.meets_auto_rule(job)
         old_assignees = list(job.assigned_to.all())
         for field, value in data.items():
             setattr(job, field, value)
@@ -268,17 +280,38 @@ class JobDetailView(_JobView):
             job.assigned_to.set(assignees)
             before_ids = {u.pk for u in old_assignees}
             queue_assignment_emails(job, [u for u in assignees if u.pk not in before_ids], request.user)
+        event = None
         if changes:
             job.last_updated = timezone.now()
             job.save()
             AuditLog.record(request.user, AuditLog.UPDATED, job, changes=changes)
-        return Response(job_detail(_jobs().get(pk=job.pk), JobSettings.load(), request.user))
+            event = archive.apply_auto_archive(job, met_before, request.user)
+        data = job_detail(_jobs().get(pk=job.pk), JobSettings.load(), request.user)
+        return Response({**data, 'archive_event': event})
 
     def delete(self, request, pk):
         job = get_object_or_404(Job, pk=pk)
         job.trash(request.user)
         logger.info(f'{request.user.username} moved {job.job_id} to the trash')
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class JobArchiveView(archive.ArchiveView):
+    section = 'jobs'
+
+    def get_item(self, pk):
+        return get_object_or_404(Job.objects.select_for_update(), pk=pk)
+
+
+class JobUnarchiveView(JobArchiveView):
+    archived = False
+
+
+class JobBulkArchiveView(archive.BulkArchiveView):
+    section = 'jobs'
+
+    def find(self, ids):
+        return Job.objects.select_for_update().in_bulk(ids)
 
 
 class JobCommentsView(_JobView):

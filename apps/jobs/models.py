@@ -14,13 +14,16 @@ Operations spreadsheet (Apps Script: 00_Config, 03_Escalations, 07_Triggers_Menu
   ``JobSettings`` (7 / 14 / 21 days by default, like the sheet's Settings tab).
 - Categories are an editable list (``JobCategory``): added, renamed or
   switched off on the dashboard, never deleted (jobs keep pointing at them).
+- Archive (``ArchivableModel``): a job is archived automatically when a
+  dashboard save makes it done / invoiced AND Paid ("No charge" jobs aren't).
+  Rules in ``apps.records.archive``.
 """
 
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
 
-from apps.records.models import TrashableModel
+from apps.records.models import ArchivableModel, TrashableModel
 
 
 class JobCategory(models.Model):
@@ -41,7 +44,7 @@ class JobCategory(models.Model):
         return self.name
 
 
-class Job(TrashableModel):
+class Job(TrashableModel, ArchivableModel):
     # In workflow order: the list's default sort (live work first).
     class Status(models.TextChoices):
         OPEN = 'open', 'Open'
@@ -114,6 +117,16 @@ class Job(TrashableModel):
     def __str__(self):
         name = self.client_name or ' '.join(self.task.split())[:60] or '(no client)'
         return f'{self.job_id} · {name}'
+
+    def auto_archive_note(self):
+        if self.status in self.FINISHED and self.payment == self.Payment.PAID:
+            return f'{self.get_status_display().lower()} and paid'
+        return None
+
+    def auto_unarchive_note(self):
+        if self.payment != self.Payment.PAID:
+            return f"payment changed to {self.get_payment_display() if self.payment else 'not set'}"
+        return f"status changed to {self.get_status_display() if self.status else 'no status'}"
 
     def trash_preview(self, request):
         return {

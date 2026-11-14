@@ -2,6 +2,7 @@ from django.contrib.auth.models import User
 from django.utils import timezone
 from rest_framework import serializers
 
+from apps.records.archive import archive_data
 from apps.solar_dashboard.models import Site
 
 from .models import Job, JobCategory, JobSettings, staff_name
@@ -68,6 +69,7 @@ def job_row(job, thresholds, today=None):
         'severity': severity,
         'comment_count': len(comments),
         'last_comment': {'author': last.author_name, 'body': last.body, 'created_at': last.created_at} if last else None,
+        **archive_data(job),
     }
 
 
