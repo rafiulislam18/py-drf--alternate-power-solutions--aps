@@ -62,6 +62,7 @@ INSTALLED_APPS = [
     'apps.records',
     'apps.jobs',
     'apps.tools',
+    'apps.push',
     'tests.records.testapp',  # test-only trashable models
 
     # Gas Guard apps — required so config.urls (which eagerly wires the
@@ -167,6 +168,8 @@ REST_FRAMEWORK = {
         'client_portal_ticket_create': '30/h',
         'client_portal_site_write': '30/h',
         'client_portal_message': '120/h',
+        'push_write': '30/h',
+        'push_test': '10/h',
         'accounts_ip': '30/15m',
         'accounts_email': '5/30m',
         'accounts_password': '10/15m',
@@ -279,3 +282,9 @@ CHATBOT_API_URL = 'https://api.example.com/chat'
 # Live ticket chat: one in-memory channel layer for the test process.
 ASGI_APPLICATION = 'config.asgi.application'
 CHANNEL_LAYERS = {'default': {'BACKEND': 'channels.layers.InMemoryChannelLayer'}}
+
+# Web push (apps.push): off unless a test sets keys (sending is always mocked).
+VAPID_PUBLIC_KEY = ''
+VAPID_PRIVATE_KEY = ''
+VAPID_SUBJECT = ''
+PUSH_ALLOWED_HOST_SUFFIXES = ['.googleapis.com', '.push.apple.com', '.mozilla.com', '.notify.windows.com']

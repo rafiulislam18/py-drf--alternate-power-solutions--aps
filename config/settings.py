@@ -169,6 +169,7 @@ INSTALLED_APPS = [
     'apps.records',
     'apps.jobs',
     'apps.tools',
+    'apps.push',  # web push notifications (APS dashboard + Gas Guard)
 
     # ── Gas Guard apps (see the "GAS GUARD ONLY" settings block below) ──
     # Namespaced under apps/gas_guard/ with unique labels (gg_*) so their
@@ -320,6 +321,9 @@ REST_FRAMEWORK = {
         "client_portal_ticket_create": "30/h",
         "client_portal_site_write": "30/h",
         "client_portal_message": "120/h",
+        # Push notifications (apps.push), per account: on/off/remove, and the test button.
+        "push_write": "30/h",
+        "push_test": "10/h",
         # Dashboard accounts (apps.accounts): public endpoints per IP, anything
         # that sends an email per target address, and password checks per account.
         "accounts_ip": "30/15m",
@@ -771,6 +775,17 @@ PAYFAST_SOLAR_CLEANING_NOTIFY_URL = os.getenv('PAYFAST_SOLAR_CLEANING_NOTIFY_URL
 # Percentage at/below which a cylinder is considered low and an alert fires.
 # Mirrors LOW_THRESHOLD_PCT in the Gas Guard frontend (data/gas_guard/types.ts).
 GAS_GUARD_LOW_GAS_THRESHOLD_PCT = int(os.getenv('GAS_GUARD_LOW_GAS_THRESHOLD_PCT', '30'))
+
+# ====================== WEB PUSH NOTIFICATIONS (apps.push) ======================
+# VAPID keys for the installed apps' notifications (APS dashboard + Gas Guard).
+# Make them once with `python manage.py generate_vapid_keys --subject mailto:…`
+# and put the three printed lines in .env. Unset = push is off (the pages say so).
+VAPID_PUBLIC_KEY = os.getenv('VAPID_PUBLIC_KEY', '').strip().strip('\'"')
+VAPID_PRIVATE_KEY = os.getenv('VAPID_PRIVATE_KEY', '').strip().strip('\'"')
+VAPID_SUBJECT = os.getenv('VAPID_SUBJECT', '').strip().strip('\'"')  # mailto:address
+# Browser push services a device may sign up with (the server POSTs to them):
+# Chrome/Edge-on-Android/Samsung/Opera (FCM), Safari, Firefox, Edge on Windows.
+PUSH_ALLOWED_HOST_SUFFIXES = ['.googleapis.com', '.push.apple.com', '.mozilla.com', '.notify.windows.com']
 
 # ── Gas Guard PayFast (subscription payments) ───────────────────────────────
 # Gas Guard runs its OWN PayFast checkout flow, separate from the APS website's
