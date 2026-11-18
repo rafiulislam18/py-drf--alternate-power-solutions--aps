@@ -158,6 +158,13 @@ def read_workbook(path):
             continue
         jobs.append({'_row': n, **{k: (row[i] if i is not None and i < len(row) else None) for k, i in cols.items()}})
 
+    directory = staff_directory(tabs)
+    wb.close()
+    return jobs, directory
+
+
+def staff_directory(tabs):
+    """The Settings tab's staff directory: {canonical name lower: email}. ``tabs`` = {title lower: sheet}."""
     directory = {}
     if 'settings' in tabs:
         seen_header = False
@@ -168,15 +175,16 @@ def read_workbook(path):
                 continue
             if seen_header and _clean(first):
                 directory[canonical(_clean(first)).lower()] = _clean(second)
-    wb.close()
-    return jobs, directory
+    return directory
 
 
 class _People:
-    """Finds or creates the staff account for each name in Assigned To."""
+    """Finds or creates the staff account for each name in Assigned To (also used by the
+    tool bookings import, for Booked By and Checked By)."""
 
-    def __init__(self, directory, report):
+    def __init__(self, directory, report, source='jobs sheet'):
         from apps.staff.views import staff_users
+        self.source = source
         self.staff = list(staff_users())
         self.directory = directory
         self.report = report
@@ -217,7 +225,7 @@ class _People:
         self.report.people_created[name] = email
         self.audit.append(AuditLog(actor_role='', action=AuditLog.CREATED, object_type='auth.user',
                                    object_id=str(user.pk), object_repr=account(user).object_repr, section='staff',
-                                   summary='Staff account added by the jobs sheet import (no password, no permissions)'))
+                                   summary=f'Staff account added by the {self.source} import (no password, no permissions)'))
         return user
 
 

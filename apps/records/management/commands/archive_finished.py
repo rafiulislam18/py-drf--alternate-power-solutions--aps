@@ -1,14 +1,15 @@
 """
-Archive the jobs and tickets that were already finished before the archive
-existed. Run it once after deploying the archive (the auto rule only ever
+Archive the jobs, tickets and tool bookings that were already finished before
+the archive existed (or came in from the Operations sheet). Run it once after deploying the archive (the auto rule only ever
 archives on a save that FINISHES an item, so older ones stay in the lists).
 
     python manage.py archive_finished --dry-run     # only count them
-    python manage.py archive_finished               # jobs and tickets
-    python manage.py archive_finished --jobs        # only jobs (or --tickets)
+    python manage.py archive_finished               # jobs, tickets and tool bookings
+    python manage.py archive_finished --jobs        # only jobs (or --tickets, --tool-bookings)
 
 - Jobs: done / invoiced and Paid ("No charge" jobs aren't archived).
 - Tickets: completed / cancelled.
+- Tool bookings: every tool returned (checks may still be waiting).
 
 They're archived as "automatically" by the system, with the rule as the
 reason, and each one gets an "Archived" entry in its history. Items someone
@@ -21,6 +22,7 @@ from django.db import transaction
 from apps.client_portal.models import Ticket
 from apps.jobs.models import Job
 from apps.records.models import ArchivableModel, AuditLog
+from apps.tools.models import Booking, BookingItem
 
 
 def _never_unarchived(qs):
@@ -37,18 +39,27 @@ def finished_tickets():
     return Ticket.objects.filter(archived_at__isnull=True, status__in=Ticket.STATUS_GROUPS['completed'])
 
 
+def returned_tool_bookings():
+    still_out = BookingItem.objects.filter(return_movement__isnull=True).values('booking_id')
+    return Booking.objects.filter(archived_at__isnull=True, items__isnull=False).exclude(pk__in=still_out).distinct()
+
+
 class Command(BaseCommand):
-    help = 'Archive jobs (done / invoiced + Paid) and tickets (completed / cancelled) finished before the archive.'
+    help = ('Archive jobs (done / invoiced + Paid), tickets (completed / cancelled) and tool bookings '
+            '(every tool returned) finished before the archive.')
 
     def add_arguments(self, parser):
         parser.add_argument('--dry-run', action='store_true', help='Only count what would be archived.')
         parser.add_argument('--jobs', action='store_true', help='Only jobs.')
         parser.add_argument('--tickets', action='store_true', help='Only tickets.')
+        parser.add_argument('--tool-bookings', action='store_true', help='Only tool bookings.')
 
-    def handle(self, *args, dry_run=False, jobs=False, tickets=False, **options):
-        both = not jobs and not tickets
-        kinds = [(label, qs) for label, qs, wanted in (('jobs', finished_jobs(), jobs or both),
-                                                       ('tickets', finished_tickets(), tickets or both)) if wanted]
+    def handle(self, *args, dry_run=False, jobs=False, tickets=False, tool_bookings=False, **options):
+        every = not jobs and not tickets and not tool_bookings
+        kinds = [(label, qs) for label, qs, wanted in (
+            ('jobs', finished_jobs(), jobs or every),
+            ('tickets', finished_tickets(), tickets or every),
+            ('tool bookings', returned_tool_bookings(), tool_bookings or every)) if wanted]
         with transaction.atomic():
             for label, qs in kinds:
                 todo = _never_unarchived(qs)
