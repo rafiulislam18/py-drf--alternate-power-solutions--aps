@@ -353,9 +353,45 @@ def test_summary_tiles(api, lucky):
     ladder = add_tool(api, name='Ladder', quantity=4)
     drill = add_tool(api)
     add_tool(api, name='Old saw', condition='retired')
+    add_tool(api, name='Lost tester', condition='lost')
+    add_tool(api, name='Broken grinder', condition='in_repair')
     book(api, lucky, [(ladder['id'], 2), drill['id']])
     s = api.get(TOOLS).data['summary']
     assert (s['out_units'], s['out_people'], s['out_bookings'], s['available'], s['in_service']) == (3, 1, 1, 1, 2)
+    assert (s['tools_out'], s['in_repair'], s['lost_retired']) == (2, 1, 2)
+
+
+def test_tools_tile_filters(api, lucky):
+    ladder = add_tool(api, name='Ladder', quantity=4)
+    drill = add_tool(api)
+    add_tool(api, name='Spare drill')
+    add_tool(api, name='Old saw', condition='retired')
+    add_tool(api, name='Lost tester', condition='lost')
+    add_tool(api, name='Broken grinder', condition='in_repair')
+    book(api, lucky, [(ladder['id'], 1), drill['id']])
+    names = lambda **p: sorted(r['name'] for r in api.get(TOOLS, p).data['results'])  # noqa: E731
+    assert names(tile='available') == ['Ladder', 'Spare drill']
+    assert names(available=1) == ['Ladder', 'Spare drill']
+    assert names(tile='out') == ['Hammer drill', 'Ladder']
+    assert names(tile='in_repair') == ['Broken grinder']
+    assert names(tile='lost_retired') == ['Lost tester', 'Old saw']
+
+
+def test_due_soon(api, lucky):
+    t = [add_tool(api, name=f'T{n}')['id'] for n in range(6)]
+    today_due = book(api, lucky, [t[0]], date_out=days_ago(3), due_date=days_ago(0))
+    week = book(api, lucky, [t[1]], date_out=days_ago(3), due_date=days_ago(-7))
+    book(api, lucky, [t[2]], date_out=days_ago(3), due_date=days_ago(-8))   # too far off
+    book(api, lucky, [t[3]], date_out=days_ago(3), due_date=days_ago(1))    # past due: overdue, not due soon
+    book(api, lucky, [t[4]], date_out=days_ago(3))                          # no due date
+    back = book(api, lucky, [t[5]], date_out=days_ago(3), due_date=days_ago(-2))
+    give_back(api, back)                                                    # returned
+    assert api.get(BOOKINGS).data['summary']['due_soon'] == 2
+    ids = {r['id'] for r in api.get(BOOKINGS, {'tile': 'due_soon'}).data['results']}
+    assert ids == {today_due['id'], week['id']}
+    # A long-term kit has no due date, so it's never due soon.
+    api.patch(f"{BOOKINGS}{week['id']}/", {'long_term_kit': True}, format='json')
+    assert api.get(BOOKINGS).data['summary']['due_soon'] == 1
 
 
 # ── permissions ──────────────────────────────────────────────────────────────

@@ -3,14 +3,16 @@ Tool bookings API (mounted at ``/tools/``): staff only, per permission
 (``apps.staff.catalogue`` section ``tools``).
 
     GET    /tools/                       every tool with its availability and who has it
-                                         ?type &availability=available|partly|out|oos &condition &q &available=1
+                                         ?type &availability=available|partly|out|oos &condition &q
+                                         &tile=available|out|in_repair|lost_retired (&available=1 = tile=available)
                                          (+ ``summary``: the tile counts over everything, whatever the filters)
     POST   /tools/                       add a tool (tools.create)
     GET    /tools/<id>/                  one tool + the bookings it was in
     PATCH  /tools/<id>/                  edit, incl. condition (tools.edit)
     DELETE /tools/<id>/                  move to the trash (tools.delete), not while any unit is out
     GET    /tools/bookings/              ?status=out|overdue|partly|returned &check=waiting|checked|flagged
-                                         &technician=<id>|me &since=week|month|quarter &tile=out|check|overdue
+                                         &technician=<id>|me &since=week|month|quarter
+                                         &tile=out|check|overdue|due_soon
                                          &tool=<id> &q &page &archived=1 | &include_archived=1
                                          (waiting-for-check filters always include archived bookings)
     POST   /tools/bookings/              book out (tools.book); 409 {conflicts} when a tool is out with
@@ -51,7 +53,7 @@ from .serializers import (
     ToolTypeSerializer, ToolWriteSerializer, booking_detail, booking_row, person, staff_queryset, tool_row,
 )
 from .services import (
-    HandoverNeeded, booking_state, book_out, can_check, confirm, next_number, open_items, overdue_q,
+    HandoverNeeded, booking_state, book_out, can_check, confirm, due_soon_q, next_number, open_items, overdue_q,
     return_items, save_with_next_number, status_q, units_out, with_flags,
 )
 
@@ -87,11 +89,16 @@ def _holders(tool_ids=None):
 
 
 def summary(settings, today=None):
-    """The four tiles, over everything (filters don't change them)."""
+    """The tiles of both pages, over everything (filters don't change them).
+
+    Bookings: out_units (+ out_people, out_bookings), waiting, overdue, due_soon.
+    Tools: available (of in_service), tools_out, in_repair, lost_retired.
+    """
     today = today or timezone.localdate()
     out = list(open_items().values('quantity', 'booking_id', 'booking__technician_id'))
-    tools = list(Tool.objects.filter(condition=Tool.Condition.IN_SERVICE).only('pk', 'quantity'))
-    out_by_tool = units_out([t.pk for t in tools])
+    all_tools = list(Tool.objects.only('pk', 'quantity', 'condition'))
+    tools = [t for t in all_tools if t.condition == Tool.Condition.IN_SERVICE]
+    out_by_tool = units_out()
     flagged = with_flags(Booking.objects.all())
     return {
         'out_units': sum(r['quantity'] for r in out),
@@ -100,8 +107,12 @@ def summary(settings, today=None):
         # Archived bookings too: a return can still wait for its check after the booking is archived.
         'waiting': flagged.filter(waiting=True).count(),
         'overdue': flagged.filter(overdue_q(settings, today)).count(),
+        'due_soon': flagged.filter(due_soon_q(today)).count(),
         'available': sum(1 for t in tools if t.quantity > out_by_tool.get(t.pk, 0)),
         'in_service': len(tools),
+        'tools_out': sum(1 for t in all_tools if out_by_tool.get(t.pk, 0)),
+        'in_repair': sum(1 for t in all_tools if t.condition == Tool.Condition.IN_REPAIR),
+        'lost_retired': sum(1 for t in all_tools if t.condition in (Tool.Condition.LOST, Tool.Condition.RETIRED)),
     }
 
 
@@ -131,8 +142,15 @@ class ToolListView(_ToolsView):
             rows = [r for r in rows if r['availability'] == p['availability']]
         if p.get('condition') in Tool.Condition.values:
             rows = [r for r in rows if r['condition'] == p['condition']]
-        if p.get('available'):
+        tile = 'available' if p.get('available') else p.get('tile')
+        if tile == 'available':
             rows = [r for r in rows if r['free'] > 0]
+        elif tile == 'out':
+            rows = [r for r in rows if r['units_out'] > 0]
+        elif tile == 'in_repair':
+            rows = [r for r in rows if r['condition'] == Tool.Condition.IN_REPAIR]
+        elif tile == 'lost_retired':
+            rows = [r for r in rows if r['condition'] in (Tool.Condition.LOST, Tool.Condition.RETIRED)]
         q = ' '.join((p.get('q') or '').split()).lower()
         if q:
             def hit(r):
@@ -211,6 +229,8 @@ def filter_bookings(qs, request, settings, today):
         qs = qs.filter(waiting=True)
     elif tile == 'overdue':
         qs = qs.filter(overdue_q(settings, today))
+    elif tile == 'due_soon':
+        qs = qs.filter(due_soon_q(today))
     q_status = status_q(p.get('status'), settings, today)
     if q_status is not None:
         qs = qs.filter(q_status)

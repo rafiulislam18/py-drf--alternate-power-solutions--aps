@@ -157,6 +157,17 @@ def overdue_q(settings, today=None):
         Q(due_date__lt=today) | Q(due_date__isnull=True, date_out__lte=today - timedelta(days=settings.overdue_days)))
 
 
+DUE_SOON_DAYS = 7
+
+
+def due_soon_q(today=None):
+    """Still out, not a kit, due today or within the next ``DUE_SOON_DAYS`` days
+    (for a queryset annotated by :func:`with_flags`). Past due is overdue instead."""
+    today = today or timezone.localdate()
+    return Q(has_open=True, long_term_kit=False, due_date__gte=today,
+             due_date__lte=today + timedelta(days=DUE_SOON_DAYS))
+
+
 def status_q(status, settings, today=None):
     overdue = overdue_q(settings, today)
     return {
