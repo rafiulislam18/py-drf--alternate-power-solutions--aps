@@ -234,6 +234,10 @@ class AuditLog(models.Model):
         ('comment_edited', 'Comment edited'),
         ('archived', 'Archived'),
         ('unarchived', 'Unarchived'),
+        ('booked_out', 'Booked out'),
+        ('returned', 'Returned'),
+        ('checked', 'Checked'),
+        ('problem_flagged', 'Problem flagged'),
     ]
 
     # Which side of the dashboard did it: the two Audit history pages.

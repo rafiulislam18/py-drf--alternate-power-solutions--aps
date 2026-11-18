@@ -5,7 +5,8 @@ Trash and audit history API (mounted at ``/records/``), staff only.
     GET   trash/<type>/<id>/           one item's preview: its details, pictures, and whether it can come back
     POST  trash/<type>/<id>/restore/   put an item back
     GET   audit/                       the audit history (?kind=staff|client&actor=&action=&type=&q=&from=&to=&page=)
-    GET   history/<type>/<id>/         one item's history (staff and client actions together)
+    GET   history/<type>/<id>/         one item's history (staff and client actions together), plus the
+                                       related items its model's ``history_extra(pk)`` names
 
 Who sees what (the full rules: docs/trash-and-audit-history.md):
 - Trash (``trash.view``): staff see and restore the items they deleted
@@ -327,5 +328,11 @@ class ItemHistoryView(_StaffView):
                    or (section and has_perm(request.user, f'{section}.view')))
         if not allowed:
             return _forbidden(denied_message(f'{section}.view' if section else 'audit.view_all'))
-        rows = AuditLog.objects.filter(object_type=model._meta.label_lower, object_id=str(pk))
+        match = Q(object_type=model._meta.label_lower, object_id=str(pk))
+        # A type can pull in related items' entries (a tool shows the bookings it was in).
+        extra = getattr(model, 'history_extra', None)
+        for object_type, ids in (extra(pk) if extra else []):
+            if ids:
+                match |= Q(object_type=object_type, object_id__in=[str(i) for i in ids])
+        rows = AuditLog.objects.filter(match)
         return Response([_entry(r) for r in rows[:500]])
