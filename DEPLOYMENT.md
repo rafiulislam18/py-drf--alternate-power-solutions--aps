@@ -125,7 +125,92 @@ Restart services (or push to trigger the CD workflow) and deploy the frontend bu
 
 ---
 
-## 4. Troubleshooting
+## 4. One-time setup: Push notifications
+
+Phone and desktop notifications for the installed apps (APS dashboard and Gas Guard): new ticket messages and low gas. They use standard Web Push. No outside service or account is needed, only a key pair that you make once.
+
+Do 4.1 to 4.4 **once per server**. Until they're done, everything else works and the Notifications settings say "not set up on the server yet".
+
+### 4.1 Python package
+
+Covered by the deploy (`pip install -r requirements.txt`). Adds `pywebpush` and the packages it needs. `migrate` (also in the deploy) adds the device table.
+
+### 4.2 Make the keys
+
+Connect to the server (`ssh root@<server>`), then:
+
+```bash
+cd /root/aps_web/backend
+source venv/bin/activate
+python manage.py generate_vapid_keys --subject mailto:support@alter-power.co.za
+```
+
+Use a real APS mailbox after `mailto:`. Push services (Google, Apple, Mozilla) use it to contact you if something is wrong.
+
+It prints three lines like these:
+
+```
+VAPID_PUBLIC_KEY=BKx...long...
+VAPID_PRIVATE_KEY=q3F...
+VAPID_SUBJECT=mailto:support@alter-power.co.za
+```
+
+Keep the terminal open for the next step.
+
+**Make the keys only once.** New keys switch off notifications on every phone, and people have to turn them on again. Never share or commit the private key.
+
+### 4.3 Add them to `.env`
+
+```bash
+nano /root/aps_web/backend/.env
+```
+
+1. Go to the bottom of the file (arrow keys).
+2. Paste the three lines (right-click or Ctrl+Shift+V).
+3. Save: Ctrl+O, then Enter. Exit: Ctrl+X.
+
+While the file is open, check the `CELERY_EAGER` line. It must be:
+
+```
+CELERY_EAGER=False
+```
+
+If it's missing or `True`, background jobs run inside the web request. Ticket notifications then can't wait the ~5 seconds that lets them skip someone who already has the chat open.
+
+### 4.4 Restart and check
+
+```bash
+systemctl restart gunicorn daphne celery-worker celery-beat
+cd /root/aps_web/backend && source venv/bin/activate
+python manage.py shell -c "from apps.push.send import is_configured; print(is_configured())"
+```
+
+The last command must print `True`. If it prints `False`, a line in `.env` is missing or misspelled.
+
+Gas Guard admins also get low-gas notifications. To see who they are: `python manage.py gg_staff --list`.
+
+### 4.5 Test on a real phone
+
+The frontend build with the Notifications settings must be deployed first. Notifications only work in the **installed app**, not in a normal browser tab.
+
+**Android (Chrome):**
+1. Open the site in Chrome, sign in at `/dashboard`, and tap **Install the APS app** in the sidebar (or Chrome menu → Add to Home screen / Install app).
+2. Open the app from the home screen.
+3. Account settings → Notifications → **Turn on** → Allow.
+4. Tap **Send a test notification**. It should appear within a few seconds.
+
+**iPhone / iPad** (needs iOS / iPadOS 16.4 or newer: Settings → General → About):
+1. Open the site in **Safari**, sign in, tap Share → **Add to Home Screen**.
+2. Open the app from the Home Screen icon (not from Safari).
+3. Same steps 3 and 4 as Android.
+
+**Ticket message:** with notifications on for a client account on the phone, close the app. From a computer, signed in as staff, write in that client's ticket chat. The phone should show "New message on APS-…" within about 5 seconds. Tapping it opens the ticket. It also works the other way round, with notifications on for a staff account.
+
+**Gas Guard:** open `/gas-guard`, sign in, install the Gas Guard app the same way. In Settings → Notifications, turn on and send a test. A real low-gas notification comes from the hourly check, once, when a cylinder drops to 30% or below.
+
+---
+
+## 5. Troubleshooting
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
@@ -135,4 +220,8 @@ Restart services (or push to trigger the CD workflow) and deploy the frontend bu
 | Uploaded images don't display | `/media/` not served | Check Nginx `location /media/` |
 | Live chat shows old behaviour after deploy | Daphne not restarted | `systemctl restart daphne` |
 | Prices & settings empty | Catalogue not imported | Run 3.5 |
-
+| Notifications settings say "not set up on the server yet" | VAPID keys missing in `.env`, or services not restarted | Run 4.2–4.4 |
+| Test notification works, but ticket notifications never arrive | Celery worker down | `systemctl status celery-worker`, then `journalctl -u celery-worker -n 50` |
+| Notifications arrive even while the chat is open | `CELERY_EAGER` not `False` | Fix it in `.env` (4.3), then restart (4.4) |
+| Notifications stopped on every phone at once | Keys were changed | Everyone turns notifications on again in settings |
+| iPhone has no "Turn on" button | Opened in Safari, not from the Home Screen icon, or iOS older than 16.4 | See 4.5 |
