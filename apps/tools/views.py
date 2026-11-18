@@ -12,7 +12,7 @@ Tool bookings API (mounted at ``/tools/``): staff only, per permission
     DELETE /tools/<id>/                  move to the trash (tools.delete), not while any unit is out
     GET    /tools/bookings/              ?status=out|overdue|partly|returned &check=waiting|checked|flagged
                                          &technician=<id>|me &since=week|month|quarter
-                                         &tile=out|check|overdue|due_soon
+                                         &tile=out|check|overdue|due_soon (a tile ignores the archive view)
                                          &tool=<id> &q &page &archived=1 | &include_archived=1
                                          (waiting-for-check filters always include archived bookings)
     POST   /tools/bookings/              book out (tools.book); 409 {conflicts} when a tool is out with
@@ -219,8 +219,11 @@ def filter_bookings(qs, request, settings, today):
     """The bookings list filters (also used by Who has what)."""
     p = request.query_params
     qs = with_flags(qs)
-    waiting_view = p.get('tile') == 'check' or p.get('check') == 'waiting'
-    if not waiting_view:  # returns waiting for their check stay visible after the booking is archived
+    # The tiles count over everything, so their filters ignore Active | Archived: returns still waiting
+    # for their check stay visible after the booking is archived, and a booking that's still out
+    # (out now, overdue, due soon) is never archived anyway. The list then matches the tile's number.
+    tile_view = p.get('tile') in ('out', 'check', 'overdue', 'due_soon') or p.get('check') == 'waiting'
+    if not tile_view:
         qs = archive.filter_archived(qs, p)
     tile = p.get('tile')
     if tile == 'out':

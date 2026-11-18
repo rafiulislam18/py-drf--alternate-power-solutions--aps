@@ -377,6 +377,20 @@ def test_tools_tile_filters(api, lucky):
     assert names(tile='lost_retired') == ['Lost tester', 'Old saw']
 
 
+def test_booking_tiles_match_their_counts_in_either_view(api, lucky):
+    a, b, c = (add_tool(api, name=n)['id'] for n in ('Drill', 'Grinder', 'Saw'))
+    book(api, lucky, [a], date_out=days_ago(40))                         # out, overdue
+    book(api, lucky, [b], date_out=days_ago(2), due_date=days_ago(-3))   # out, due soon
+    done = book(api, lucky, [c])
+    give_back(api, done)                                                 # archived
+    s = api.get(BOOKINGS).data['summary']
+    for tile, count in (('out', s['out_bookings']), ('overdue', s['overdue']), ('due_soon', s['due_soon']),
+                        ('check', s['waiting'])):
+        for view in ({}, {'archived': '1'}):
+            assert api.get(BOOKINGS, {'tile': tile, **view}).data['count'] == count, (tile, view)
+    assert (s['out_bookings'], s['overdue'], s['due_soon']) == (2, 1, 1)
+
+
 def test_due_soon(api, lucky):
     t = [add_tool(api, name=f'T{n}')['id'] for n in range(6)]
     today_due = book(api, lucky, [t[0]], date_out=days_ago(3), due_date=days_ago(0))
