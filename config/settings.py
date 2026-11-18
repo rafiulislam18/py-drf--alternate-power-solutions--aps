@@ -168,6 +168,7 @@ INSTALLED_APPS = [
     'apps.staff',
     'apps.records',
     'apps.jobs',
+    'apps.tools',
 
     # ── Gas Guard apps (see the "GAS GUARD ONLY" settings block below) ──
     # Namespaced under apps/gas_guard/ with unique labels (gg_*) so their
@@ -521,6 +522,10 @@ EMAIL_USE_TLS = True
 EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER')
 EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD')
 EMAIL_RECIPIENT = os.getenv('EMAIL_RECIPIENT')
+# Tool booking alerts (booked out / returned / problem / overdue digest): the office's
+# addresses, comma-separated. Only the first value for Tool settings → Alert emails,
+# which staff then change on the dashboard. Falls back to EMAIL_RECIPIENT.
+TOOL_ALERT_EMAILS = os.getenv('TOOL_ALERT_EMAILS', '')
 
 
 # ====================== CACHE ======================

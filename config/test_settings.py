@@ -61,6 +61,7 @@ INSTALLED_APPS = [
     'apps.staff',
     'apps.records',
     'apps.jobs',
+    'apps.tools',
     'tests.records.testapp',  # test-only trashable models
 
     # Gas Guard apps — required so config.urls (which eagerly wires the
