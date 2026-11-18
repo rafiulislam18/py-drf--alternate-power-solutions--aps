@@ -138,7 +138,7 @@ def test_checks(sheet, people):
     assert out.checked_by == people['Sediek'] and out.checked_at.date().isoformat() == '2026-07-31'
     # A return with a checker is confirmed by them; one without counts as checked by the sheet.
     back = Booking.objects.get(technician=people['Gershwin'], date_out='2026-07-28').movements.get(kind='return')
-    assert back.checked_by.first_name == 'Michiel' and back.date.isoformat() == '2026-08-12'
+    assert back.checked_by.first_name == 'Micheal' and back.date.isoformat() == '2026-08-12'
     assert back.alert_sent_at is not None
     scanner = Booking.objects.get(items__tool__name='Thermal Scanner')
     assert all(m.is_checked for m in scanner.movements.all())
@@ -186,10 +186,20 @@ def test_dry_run_keeps_nothing_and_lists_every_spelling(sheet, people):
     assert 'DRY RUN' in out
     assert '"Gurshwain" → Gershwin → matched gershwin  (rows 3, 8)' in out
     assert '"Leonard" → Lenard → new account lenard (no email)  (row 6)' in out
-    assert '"Michiel" → new account michiel (no email)  (rows 8, 9)' in out
+    assert '"Michiel" → Micheal → new account micheal (no email)  (rows 8, 9)' in out
     assert '"Sediek" → matched sediek  (rows 4, 5)' in out
     assert '"Brian" → new account brian <brian@aps.example>' in out
     assert 'Long-term kits:' in out and 'Ladder ×4' in out
+
+
+def test_michiel_is_the_existing_micheal_account(sheet, people):
+    micheal = make_staff('micheal', perms=[], first_name='Micheal')
+    out = run(sheet, '--dry-run')
+    assert '"Michiel" → Micheal → matched micheal  (rows 8, 9)' in out
+    run(sheet)
+    assert not User.objects.filter(username='michiel').exists()
+    back = Booking.objects.get(technician=people['Gershwin'], date_out='2026-07-28').movements.get(kind='return')
+    assert back.checked_by == micheal
 
 
 def test_runs_only_once(sheet, people):

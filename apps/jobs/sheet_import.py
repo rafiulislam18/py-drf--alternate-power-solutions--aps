@@ -53,6 +53,8 @@ ALIASES = {
     'emanual': 'Emmanuel', 'emanuel': 'Emmanuel', 'emmanuel': 'Emmanuel',
     'lenard': 'Lenard', 'leonard': 'Lenard',
     'themba': 'Themba', 'temba': 'Themba',
+    # The tool bookings sheet's checker "Michiel" is the existing "Micheal" account (18/11/2026, the user).
+    'michiel': 'Micheal', 'micheal': 'Micheal',
 }
 
 STATUS_MAP = {s.label.upper(): s.value for s in Job.Status}
