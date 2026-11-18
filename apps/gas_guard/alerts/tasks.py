@@ -3,7 +3,9 @@ Hourly low-gas alerting.
 
 Every hour (scheduled via django-celery-beat) we check every active site's
 remaining gas percentage. When a cylinder crosses at/below the low threshold
-(default 30%) we email both the client (site owner) and the APS admin inbox.
+(default 30%) we email both the client (site owner) and the APS admin inbox,
+and push a notification to the owner's and the Gas Guard admins' devices
+(apps.push.gas; no push on a refill).
 
 Alerting is edge-triggered per site via LowGasAlertState: an alert fires once
 when a site drops to low, stays quiet while it remains low, and a recovery email
@@ -20,6 +22,7 @@ from django.utils import timezone
 
 from apps.gas_guard.weight_scale.models import ScaleDevice
 from apps.gas_guard.weight_scale.services import site_payload
+from apps.push.gas import queue_low_gas_push
 
 from .emails import send_low_gas_email
 
@@ -122,6 +125,7 @@ def _handle_transition(device, is_low, context, now):
         state.save()
         context = {**context, 'is_fault': True}
         sent = send_low_gas_email(context, recipients)
+        queue_low_gas_push(device, context['site_name'], context['pct'])
         logger.warning(
             'Low-gas alert for %s at %s%% (email sent=%s)',
             device, context['pct'], sent,
