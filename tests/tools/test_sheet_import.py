@@ -58,6 +58,7 @@ ROWS = [
     row(tool='cramper ', qty=1.0, who='Lorenzo ', status='Out'),
     row(who='Lucky', back=d(30, 10), o_alert=datetime(2026, 10, 30, 8, 22)),
     row(tool='Green Blower Li-ion ', qty=1.0, back=d(15, 10), status='Returned'),
+    row(tool='Heat Gun', brand='Total 2000w', out=d(16), checker='Sediek '),
 ]
 
 
@@ -161,10 +162,22 @@ def test_dates_and_odd_rows(sheet, people):
     assert list(back.items.values_list('tool__name', flat=True)) == ['cramper']
     cramper = Booking.objects.get(items__tool__name='cramper', technician__first_name='Lerenzo')
     assert 'used the import date' in cramper.notes
-    assert not Booking.objects.filter(items__tool__name='Green Blower Li-ion').exists()
-    assert 'Green Blower Li-ion: returned 15 Oct 2026 but no one in Booked By' in out
     assert 'Thermal Scanner: the row says Out but no one is in Booked By' in out
     assert 'is before the date out' in out
+
+
+def test_a_tool_row_with_no_person_keeps_the_tool_and_skips_only_the_booking(sheet, people):
+    out = run(sheet)
+    for name in ('Green Blower Li-ion', 'Heat Gun'):
+        tool = Tool.objects.get(name=name)
+        assert tool.condition == 'in_service' and not tool.booking_items.exists(), name
+    # Its own row books nothing; the row below (Brian) does.
+    assert list(Booking.objects.filter(items__tool__name='Thermal Scanner').values_list(
+        'technician__first_name', flat=True)) == ['Brian']
+    blower = Tool.objects.get(name='Green Blower Li-ion')
+    assert (f'Green Blower Li-ion ({blower.tool_id}): returned 15 Oct 2026 but no one in Booked By') in out
+    assert 'Heat Gun (TL-0' in out and 'out 16 Aug 2026, checked by Sediek but no one in Booked By' in out
+    assert 'their tools are imported as available' in out
 
 
 def test_nothing_is_archived_or_emailed_and_history_is_written(sheet, people, mailoutbox):

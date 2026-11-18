@@ -12,7 +12,8 @@ The tab is a register and a log in one. How it's read:
 - **Bookings.** A row's Booked By is a booking of that row's tool; a row with
   no Tool, Brand, Model or Serial is a booking of the last tool above it
   (empty rows in between are skipped). "In Office" means the tool is at the
-  office: no booking. Rows of one person with the same Date Out become one
+  office: no booking. A row with no one in Booked By keeps its tool
+  (available) and only its booking is left out, with a note. Rows of one person with the same Date Out become one
   booking with several tools (e.g. Lucky's 10 tools on 16 Aug).
   Multi-unit tools are booked as 1 unit (the sheet has no count), and listed.
 - **Long-term kits** (user, 18/11/2026): the 16 Aug bookings of Lucky, Leonard
@@ -90,7 +91,7 @@ class Report:
     in_office: int = 0
     multi_unit: list = field(default_factory=list)         # (tool, qty, [booking ids])
     notes: list = field(default_factory=list)              # (row, note): mapped, but worth a look
-    skipped: list = field(default_factory=list)            # (row, why)
+    skipped: list = field(default_factory=list)            # (row, why): bookings only; the tool is kept
     people: list = field(default_factory=list)             # (sheet spelling, canonical, outcome, rows)
     email_skipped: list = field(default_factory=list)
 
@@ -262,8 +263,14 @@ def import_tools(path, dry_run=False, today=None):
             report.in_office += 1
             continue
         if not person:
-            if returned:
-                report.skipped.append((r, f'{current.name}: returned {returned:%d %b %Y} but no one in Booked By'))
+            # The tool stays (available); only the booking can't be made without a person.
+            what = [f'{label} {value:%d %b %Y}' for label, value in
+                    (('out', out), ('due', parse_date(row['due'])), ('returned', returned)) if value]
+            if _clean(row['checked_by']):
+                what.append(f'checked by {_clean(row["checked_by"])}')
+            if what:
+                report.skipped.append((r, f'{current.name} ({current.tool_id}): {", ".join(what)} but no one in '
+                                          f'Booked By'))
             elif status.startswith('out'):
                 report.notes.append((r, f'{current.name}: the row says Out but no one is in Booked By, so that row '
                                         f'isn’t a booking (the tool is out only if a row below books it)'))

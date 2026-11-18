@@ -104,7 +104,8 @@ class Command(BaseCommand):
             for row, note in r.notes:
                 w(f'  row {row}: {note}')
         if r.skipped:
-            w(warn(f'Not imported ({len(r.skipped)}):'))
+            w(warn(f'Bookings not imported, no one in Booked By ({len(r.skipped)}); their tools are imported '
+                   f'as available:'))
             for row, why in r.skipped:
                 w(f'  row {row}: {why}')
         if dry_run:
