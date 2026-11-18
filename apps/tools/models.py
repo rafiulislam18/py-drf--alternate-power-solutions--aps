@@ -146,11 +146,17 @@ class Booking(TrashableModel, ArchivableModel):
     # When the daily overdue digest last listed this booking.
     overdue_alert_at = models.DateTimeField(null=True, blank=True, editable=False)
     imported_from_sheet = models.BooleanField(default=False, editable=False)
+    # "Mark resolved" (a checker): the problems up to then are dealt with. A problem
+    # raised later (a new flag, another damaged return) makes the booking a problem again.
+    problem_resolved_at = models.DateTimeField(null=True, blank=True, editable=False)
+    problem_resolved_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True,
+                                            blank=True, related_name='+', editable=False)
+    problem_resolution = models.CharField('resolution', max_length=200, blank=True, editable=False)
 
     trash_section = 'tools'
     trash_label = 'Tool booking'
     audit_exclude = {'number', 'created_by', 'created_at', 'overdue_alert_at', 'imported_from_sheet', 'notify',
-                     'technician', 'date_out'}
+                     'technician', 'date_out', 'problem_resolved_at', 'problem_resolved_by', 'problem_resolution'}
 
     class Meta:
         ordering = ['-date_out', '-number']

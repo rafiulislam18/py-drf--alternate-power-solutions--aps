@@ -14,6 +14,7 @@ urlpatterns = [
     path('bookings/bulk-archive/', views.BookingBulkArchiveView.as_view(), name='tool-booking-bulk-archive'),
     path('bookings/<int:pk>/', views.BookingDetailView.as_view(), name='tool-booking-detail'),
     path('bookings/<int:pk>/return/', views.BookingReturnView.as_view(), name='tool-booking-return'),
+    path('bookings/<int:pk>/resolve/', views.BookingResolveView.as_view(), name='tool-booking-resolve'),
     path('bookings/<int:pk>/archive/', views.BookingArchiveView.as_view(), name='tool-booking-archive'),
     path('bookings/<int:pk>/unarchive/', views.BookingUnarchiveView.as_view(), name='tool-booking-unarchive'),
     path('<int:pk>/', views.ToolDetailView.as_view(), name='tool-detail'),

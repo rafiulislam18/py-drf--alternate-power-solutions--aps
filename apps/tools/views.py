@@ -12,7 +12,7 @@ Tool bookings API (mounted at ``/tools/``): staff only, per permission
     DELETE /tools/<id>/                  move to the trash (tools.delete), not while any unit is out
     GET    /tools/bookings/              ?status=out|overdue|partly|returned &check=waiting|checked|flagged
                                          &technician=<id>|me &since=week|month|quarter
-                                         &tile=out|check|overdue|due_soon (a tile ignores the archive view)
+                                         &tile=out|check|overdue|due_soon|problems (a tile ignores the archive view)
                                          &tool=<id> &q &page &archived=1 | &include_archived=1
                                          (waiting-for-check filters always include archived bookings)
     POST   /tools/bookings/              book out (tools.book); 409 {conflicts} when a tool is out with
@@ -22,6 +22,7 @@ Tool bookings API (mounted at ``/tools/``): staff only, per permission
     DELETE /tools/bookings/<id>/         move to the trash (tools.book), only while nothing is returned
     POST   /tools/bookings/<id>/return/  return some or all tools (tools.book) → ``archive_event``
     POST   /tools/bookings/check/        confirm what's waiting on these bookings (tools.check)
+    POST   /tools/bookings/<id>/resolve/ mark its problems resolved, {note} (tools.check)
     POST   /tools/bookings/<id>/archive/ | unarchive/, /tools/bookings/bulk-archive/ (tools.archive)
     GET    /tools/who-has-what/          tools still out, by technician (the bookings filters apply)
     GET    /tools/options/               types, conditions, staff, settings, can_check
@@ -54,6 +55,7 @@ from .serializers import (
 )
 from .services import (
     HandoverNeeded, booking_state, book_out, can_check, confirm, due_soon_q, next_number, open_items, overdue_q,
+    problem_q, resolve_problem,
     return_items, save_with_next_number, status_q, units_out, with_flags,
 )
 
@@ -71,7 +73,7 @@ def _int(value):
 
 
 def _bookings():
-    return Booking.objects.select_related('technician', 'job', 'created_by', 'archived_by').prefetch_related(
+    return Booking.objects.select_related('technician', 'job', 'created_by', 'archived_by', 'problem_resolved_by').prefetch_related(
         Prefetch('items', queryset=BookingItem.objects.select_related('tool').order_by('id')),
         Prefetch('movements', queryset=Movement.objects.select_related('recorded_by', 'checked_by')),
     )
@@ -91,7 +93,7 @@ def _holders(tool_ids=None):
 def summary(settings, today=None):
     """The tiles of both pages, over everything (filters don't change them).
 
-    Bookings: out_units (+ out_people, out_bookings), waiting, overdue, due_soon.
+    Bookings: out_units (+ out_people, out_bookings), waiting, overdue, due_soon, problems (incl. archived).
     Tools: available (of in_service), tools_out, in_repair, lost_retired.
     """
     today = today or timezone.localdate()
@@ -108,6 +110,7 @@ def summary(settings, today=None):
         'waiting': flagged.filter(waiting=True).count(),
         'overdue': flagged.filter(overdue_q(settings, today)).count(),
         'due_soon': flagged.filter(due_soon_q(today)).count(),
+        'problems': flagged.filter(problem_q()).count(),
         'available': sum(1 for t in tools if t.quantity > out_by_tool.get(t.pk, 0)),
         'in_service': len(tools),
         'tools_out': sum(1 for t in all_tools if out_by_tool.get(t.pk, 0)),
@@ -222,7 +225,7 @@ def filter_bookings(qs, request, settings, today):
     # The tiles count over everything, so their filters ignore Active | Archived: returns still waiting
     # for their check stay visible after the booking is archived, and a booking that's still out
     # (out now, overdue, due soon) is never archived anyway. The list then matches the tile's number.
-    tile_view = p.get('tile') in ('out', 'check', 'overdue', 'due_soon') or p.get('check') == 'waiting'
+    tile_view = p.get('tile') in ('out', 'check', 'overdue', 'due_soon', 'problems') or p.get('check') == 'waiting'
     if not tile_view:
         qs = archive.filter_archived(qs, p)
     tile = p.get('tile')
@@ -234,6 +237,8 @@ def filter_bookings(qs, request, settings, today):
         qs = qs.filter(overdue_q(settings, today))
     elif tile == 'due_soon':
         qs = qs.filter(due_soon_q(today))
+    elif tile == 'problems':
+        qs = qs.filter(problem_q())
     q_status = status_q(p.get('status'), settings, today)
     if q_status is not None:
         qs = qs.filter(q_status)
@@ -373,6 +378,17 @@ class BookingCheckView(_ToolsView):
                                     note=d['note'], problem=d['problem'])
         skipped += [i for i in ids if i not in found]
         return Response({'done': done, 'skipped': skipped})
+
+
+class BookingResolveView(_ToolsView):
+    dashboard_perms = {'POST': 'tools.check'}
+
+    @transaction.atomic
+    def post(self, request, pk):
+        booking = get_object_or_404(_bookings().select_for_update(of=('self',)), pk=pk)
+        note = request.data.get('note') if isinstance(request.data, dict) else ''
+        resolve_problem(request.user, booking, str(note or ''))
+        return Response(booking_detail(_bookings().get(pk=booking.pk), ToolSettings.load()))
 
 
 class BookingArchiveView(archive.ArchiveView):

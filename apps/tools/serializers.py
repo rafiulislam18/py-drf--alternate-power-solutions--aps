@@ -9,7 +9,7 @@ from apps.jobs.models import Job
 from apps.records.archive import archive_data
 
 from .models import Booking, BookingItem, Movement, Tool, ToolSettings, ToolType, person_name
-from .services import STATUS_LABELS, availability, booking_state, free_units
+from .services import STATUS_LABELS, availability, booking_state, free_units, problems_of
 
 
 def staff_queryset():
@@ -188,8 +188,22 @@ def booking_row(booking, settings, today=None):
         'last_returned': state['last_return'],
         'check': check_info(state),
         'waiting_count': len(state['waiting']),
+        'problem': problem_data(booking),
         'imported_from_sheet': booking.imported_from_sheet,
         **archive_data(booking),
+    }
+
+
+def problem_data(booking):
+    """The booking's problems: every flag and bad return, which are still open, and its resolution."""
+    found, unresolved = problems_of(booking)
+    return {
+        'open': bool(unresolved),
+        'items': [{'at': at, 'kind': kind, 'text': text, 'by': person(by), 'open': (at, kind, text, by) in unresolved}
+                  for at, kind, text, by in found],
+        'resolved_at': booking.problem_resolved_at,
+        'resolved_by': person(booking.problem_resolved_by),
+        'resolution': booking.problem_resolution,
     }
 
 

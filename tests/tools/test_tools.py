@@ -391,6 +391,50 @@ def test_booking_tiles_match_their_counts_in_either_view(api, lucky):
     assert (s['out_bookings'], s['overdue'], s['due_soon']) == (2, 1, 1)
 
 
+def test_problems_tile_resolve_and_new_problems(api, lucky):
+    booker = api_for(make_staff('ayesha', perms=BOOKER + ['tools.create']))
+    checker = api_for(make_staff('sediek', perms=CHECKER))
+    a, b, c, d = (add_tool(booker, name=n)['id'] for n in ('Drill', 'Grinder', 'Saw', 'Ladder'))
+    flagged = book(booker, lucky, [a])
+    checker.post(f'{BOOKINGS}check/', {'bookings': [flagged['id']], 'problem': True, 'note': 'Charger missing'},
+                 format='json')
+    damaged = book(booker, lucky, [b])
+    give_back(booker, damaged, [{'item': damaged['items'][0]['id'], 'condition': 'damaged', 'note': 'Cracked'}])
+    assert booking_obj(damaged).is_archived                     # every tool back: archived, still a problem
+    fine = book(booker, lucky, [c])
+    give_back(booker, fine)
+    book(booker, lucky, [d])
+
+    s = api.get(BOOKINGS).data['summary']
+    assert s['problems'] == 2
+    for view in ({}, {'archived': '1'}):                        # the tile ignores the archive view
+        assert {r['id'] for r in api.get(BOOKINGS, {'tile': 'problems', **view}).data['results']} == \
+            {flagged['id'], damaged['id']}
+    row = api.get(f"{BOOKINGS}{damaged['id']}/").data['problem']
+    assert row['open'] and row['items'][0]['text'] == 'Grinder: damaged (Cracked)'
+
+    # Only a checker resolves, and needs a note.
+    url = f"{BOOKINGS}{damaged['id']}/resolve/"
+    assert booker.post(url, {'note': 'Sent for repair'}, format='json').status_code == 403
+    assert 'note' in checker.post(url, {'note': ' '}, format='json').data
+    res = checker.post(url, {'note': 'Sent for repair'}, format='json')
+    assert res.status_code == 200, res.data
+    assert res.data['problem']['open'] is False and res.data['problem']['resolution'] == 'Sent for repair'
+    assert res.data['problem']['resolved_by']['name'] == 'Sediek'
+    assert AuditLog.objects.filter(action='problem_resolved', summary='Problem resolved: Sent for repair').exists()
+    assert api.get(BOOKINGS).data['summary']['problems'] == 1
+    # Nothing left to resolve.
+    assert 'note' in checker.post(url, {'note': 'Again'}, format='json').data
+
+    # A new problem after the resolution counts again.
+    checker.post(f"{BOOKINGS}{flagged['id']}/resolve/", {'note': 'Charger found'}, format='json')
+    assert api.get(BOOKINGS).data['summary']['problems'] == 0
+    give_back(booker, api.get(f"{BOOKINGS}{flagged['id']}/").data,
+              [{'item': flagged['items'][0]['id'], 'condition': 'missing_parts', 'note': 'Chuck key'}])
+    assert api.get(BOOKINGS).data['summary']['problems'] == 1
+    assert api.get(f"{BOOKINGS}{flagged['id']}/").data['problem']['open'] is True
+
+
 def test_due_soon(api, lucky):
     t = [add_tool(api, name=f'T{n}')['id'] for n in range(6)]
     today_due = book(api, lucky, [t[0]], date_out=days_ago(3), due_date=days_ago(0))

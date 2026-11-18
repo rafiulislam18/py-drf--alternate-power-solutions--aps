@@ -17,6 +17,9 @@ The tool booking rules, shared by the API, the alerts and the import.
   who entered it can check tools: then it's confirmed straight away.
 - **Archive:** a return that brings the last tool back archives the booking
   (``apps.records.archive``); its checks can still be waiting.
+- **Problems:** a booking has a problem when a check was flagged or a tool came
+  back Damaged / Missing parts. A checker marks it resolved with a note; a
+  problem raised after that (a new flag, another bad return) counts again.
 """
 
 from datetime import timedelta
@@ -143,11 +146,55 @@ HAS_OPEN = Exists(BookingItem.objects.filter(booking=OuterRef('pk'), return_move
 HAS_BACK = Exists(BookingItem.objects.filter(booking=OuterRef('pk'), return_movement__isnull=False))
 WAITING = Exists(Movement.objects.filter(booking=OuterRef('pk'), checked_at__isnull=True))
 FLAGGED = Exists(Movement.objects.filter(booking=OuterRef('pk'), problem_flagged=True))
+BAD_CONDITIONS = (BookingItem.Condition.DAMAGED, BookingItem.Condition.MISSING_PARTS)
+
+
+def _problems(after_resolution):
+    """Exists: a flagged check or a bad return (only those after the booking's
+    resolution when ``after_resolution``; with no resolution that matches none)."""
+    flags = Movement.objects.filter(booking=OuterRef('pk'), problem_flagged=True)
+    bad = BookingItem.objects.filter(booking=OuterRef('pk'), return_condition__in=BAD_CONDITIONS)
+    if after_resolution:
+        flags = flags.filter(checked_at__gt=OuterRef('problem_resolved_at'))
+        bad = bad.filter(return_movement__recorded_at__gt=OuterRef('problem_resolved_at'))
+    return Exists(flags) | Exists(bad)
+
+
+PROBLEM_ANY = _problems(False)
+PROBLEM_AFTER = _problems(True)
 
 
 def with_flags(qs):
-    """Annotate bookings with has_open / has_back / waiting / flagged for filtering."""
-    return qs.annotate(has_open=HAS_OPEN, has_back=HAS_BACK, waiting=WAITING, flagged=FLAGGED)
+    """Annotate bookings with has_open / has_back / waiting / flagged / problem_any /
+    problem_after for filtering."""
+    return qs.annotate(has_open=HAS_OPEN, has_back=HAS_BACK, waiting=WAITING, flagged=FLAGGED,
+                       problem_any=PROBLEM_ANY, problem_after=PROBLEM_AFTER)
+
+
+def problem_q():
+    """Bookings with a problem nobody has resolved yet (for :func:`with_flags` querysets)."""
+    return Q(problem_resolved_at__isnull=True, problem_any=True) | Q(problem_after=True)
+
+
+def problems_of(booking):
+    """[(when, kind, text, who)] for the booking's flags and bad returns, oldest first
+    (uses the prefetched movements and items), and whether any is unresolved."""
+    found = []
+    movements = {m.pk: m for m in booking.movements.all()}
+    for m in movements.values():
+        if m.problem_flagged and m.checked_at:
+            found.append((m.checked_at, 'flag', m.check_note, m.checked_by))
+    for item in booking.items.all():
+        if item.return_condition in BAD_CONDITIONS and item.return_movement_id in movements:
+            m = movements[item.return_movement_id]
+            name = item.tool.name if item.tool_id and item.tool else item.tool_label
+            text = f'{name}: {item.get_return_condition_display().lower()}'
+            found.append((m.recorded_at, 'return', text + (f' ({item.return_note})' if item.return_note else ''),
+                          m.recorded_by))
+    found.sort(key=lambda p: p[0])
+    resolved = booking.problem_resolved_at
+    unresolved = [p for p in found if resolved is None or p[0] > resolved]
+    return found, unresolved
 
 
 def overdue_q(settings, today=None):
@@ -374,6 +421,25 @@ def return_items(user, booking, lines, *, date, notify=True):
         notify_returned(movement)
     event = archive.apply_auto_archive(booking, met_before, user)
     return movement, event
+
+
+# ── problems ──
+
+@transaction.atomic
+def resolve_problem(user, booking, note):
+    """A checker marks the booking's problems resolved, with a short note."""
+    note = ' '.join((note or '').split())
+    if not note:
+        _invalid('note', 'Say how it was resolved, e.g. "Sent for repair" or "Charger found".')
+    _, unresolved = problems_of(booking)
+    if not unresolved:
+        _invalid('note', 'This booking has no open problem to resolve.')
+    booking.problem_resolved_at = timezone.now()
+    booking.problem_resolved_by = user
+    booking.problem_resolution = note[:200]
+    booking.save(update_fields=['problem_resolved_at', 'problem_resolved_by', 'problem_resolution'])
+    audit.log(user, 'problem_resolved', booking, summary=f'Problem resolved: {note}')
+    return booking
 
 
 # ── confirm ──────────────────────────────────────────────────────────────────
