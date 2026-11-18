@@ -24,11 +24,13 @@ Deleting something in the dashboard never deletes it straight away. It goes to t
 - A **solar report** can't be restored if a newer report now covers the same client and period.
 - In the **Django admin**, trashable items have a "Not in trash / In trash / All" filter and **Move to trash** / **Restore** actions. Django's normal delete is switched off.
 
-What goes to the trash today: jobs, solar reports, solar estimates, services, projects, blog posts, blog categories.
+What goes to the trash today: jobs, tools, tool bookings, solar reports, solar estimates, services, projects, blog posts, blog categories.
 
 - A **job's** number (APS-###) stays taken while it's in the trash, so it's never reused. Its comments go and come back with it; comments themselves are never deleted (the author can edit their own).
 
 - A **solar estimate's** quotation number stays taken while it's in the trash, so it's never reused and a restore never clashes.
+
+- A **tool** (TL-###) can't go to the trash while any of it is booked out. A **tool booking** (TB-####) can go to the trash only while none of its tools have come back (it's how a wrong book-out is undone); its tools are free again at once. Their numbers stay taken. A booking can't be restored while its tool is in the trash or has been booked out again. A tool deleted for good leaves its name on the old bookings.
 
 **Tickets can't be deleted at all** — not by clients, staff, superusers or in the Django admin. Close them with a status instead.
 
@@ -43,12 +45,13 @@ What goes to the trash today: jobs, solar reports, solar estimates, services, pr
 | Brought back by | **Unarchive**, any time | Restore (only your own, unless superuser) |
 | Still opens, can be commented on / chatted in | Yes | No |
 
-What can be archived: **jobs, quote requests (general, solar and container), solar estimates and tickets.** Each list shows active items by default, with an **Active | Archived** switch and an **Include archived** search option.
+What can be archived: **jobs, quote requests (general, solar and container), solar estimates, tickets and tool bookings.** Each list shows active items by default, with an **Active | Archived** switch and an **Include archived** search option.
 
 **Automatic archiving** happens in the same save that finishes the item, and the dashboard shows a notice with **Undo**:
 
 - **Jobs:** status Done or Invoiced **and** payment Paid. "No charge" jobs are never archived automatically.
 - **Tickets:** status Completed or Cancelled.
+- **Tool bookings:** every tool returned (a partial return doesn't). The checks may still be waiting: those returns stay in **Waiting for check** although the booking is archived. By hand, only a booking with every tool back can be archived.
 - **Quote requests and solar estimates:** never automatically, only by hand.
 
 The edge cases:
@@ -61,7 +64,7 @@ The edge cases:
 - Deleting an archived job or estimate puts it in the trash as usual; restoring it keeps it archived.
 - Items finished **before** the archive existed are archived once with `python manage.py archive_finished` (`--dry-run` counts first). It skips anything someone has unarchived.
 
-**Permissions:** archiving and unarchiving by hand (one item or several at once) needs `jobs.archive`, `tickets.archive`, `quotes.archive` or `estimates.archive`. They are **off by default** for new staff. When they were added, staff who could already edit that section got them (for quote requests: who could view them). Automatic archiving needs no permission: it follows from an edit the person was allowed to make. **Clients** see their own archived tickets (when, and why if automatic, but not who) and can't archive or unarchive.
+**Permissions:** archiving and unarchiving by hand (one item or several at once) needs `jobs.archive`, `tickets.archive`, `quotes.archive`, `estimates.archive` or `tools.archive`. They are **off by default** for new staff. When they were added, staff who could already edit that section got them (for quote requests: who could view them). Automatic archiving needs no permission: it follows from an edit the person was allowed to make. **Clients** see their own archived tickets (when, and why if automatic, but not who) and can't archive or unarchive.
 
 **History:** archiving and unarchiving are recorded as their own "Archived" / "Unarchived" entries ("Archived automatically: invoiced and paid"), never as field changes.
 
@@ -82,6 +85,7 @@ There are two pages (sidebar sub-menu):
 | Client | Nothing |
 
 - **View the full audit history** is **off by default**. A superuser ticks it per person on **Administration → Staff accounts**.
+- A **tool's** own history also shows the bookings it was in (booked out, returned, checked), so those aren't written twice.
 - **Audit history can never be edited or deleted** — not by staff, not by superusers, not in the Django admin. The database itself refuses changes (PostgreSQL trigger).
 - The only exception is local demo data: `python manage.py seed_audit_demo --clear` removes rows it added itself, and only runs when `DEBUG=True`.
 
