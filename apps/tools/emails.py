@@ -86,7 +86,7 @@ def _link(booking, user=None):
     """'Open the booking' for the office list, and for a technician who can open the page."""
     if user is not None and not has_perm(user, 'tools.view'):
         return ''
-    return button_html(f'{settings.FRONTEND_BASE_URL}/dashboard/tools/booking/{booking.pk}', 'Open the booking')
+    return button_html(f'{settings.FRONTEND_BASE_URL}/dashboard/tools/bookings/{booking.pk}', 'Open the booking')
 
 
 def _recipients(booking):
@@ -214,7 +214,7 @@ def _digest_table(rows, today):
         tools = ', '.join(f'{i.tool_label}{" ×" + str(i.quantity) if i.quantity > 1 else ""}' for i in state['open'])
         why = (f'due {booking.due_date:%d %b} ({(today - booking.due_date).days} days late)' if booking.due_date
                else f'out {state["days_out"]} days, no due date')
-        link = f'{settings.FRONTEND_BASE_URL}/dashboard/tools/booking/{booking.pk}'
+        link = f'{settings.FRONTEND_BASE_URL}/dashboard/tools/bookings/{booking.pk}'
         lines.append(
             '<tr>'
             f'<td style="padding: 6px 10px 6px 0; vertical-align: top; white-space: nowrap;">'
@@ -242,7 +242,7 @@ def send_overdue_digest(today=None):
         body = f"""
             <p style="margin: 0 0 12px;">{n} tool booking{'s are' if n != 1 else ' is'} overdue and not returned:</p>
             {_digest_table(rows, today)}
-            {button_html(f'{settings.FRONTEND_BASE_URL}/dashboard/tools?view=bookings&tile=overdue', 'See overdue bookings')}
+            {button_html(f'{settings.FRONTEND_BASE_URL}/dashboard/tools/bookings?tile=overdue', 'See overdue bookings')}
         """
         if send_html(f'APS: {n} tool booking{"s" if n != 1 else ""} overdue', wrap_html('Overdue tools', body),
                      office, log_prefix='Tool overdue digest'):

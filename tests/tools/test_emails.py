@@ -28,8 +28,8 @@ def test_booked_and_returned_alerts_go_to_the_office_and_the_technician(
     assert mailoutbox[0].subject == 'APS: Tools booked out to Lucky — TB-0001 (1 tool)'
     assert 'Hammer drill · Makita · SN-1' in mailoutbox[0].body
     assert '<script>' not in mailoutbox[0].body  # staff text is escaped
-    assert '/dashboard/tools/booking/' in mailoutbox[0].body
-    assert '/dashboard/tools/booking/' not in mailoutbox[1].body  # Lucky can't open the page
+    assert f"/dashboard/tools/bookings/{b['id']}" in mailoutbox[0].body
+    assert '/dashboard/tools/bookings/' not in mailoutbox[1].body  # Lucky can't open the page
     assert Movement.objects.get(booking_id=b['id'], kind='out').alert_sent_at is not None
 
     with django_capture_on_commit_callbacks(execute=True):
@@ -70,6 +70,8 @@ def test_overdue_digest(api, lucky, mailoutbox):
                                                                               'accounts@aps.example']
     assert 'Grinder' in office.body and 'Saw' in office.body and 'Drill' not in office.body
     assert 'out 40 days, no due date' in office.body and '2 days late' in office.body
+    assert f"/dashboard/tools/bookings/{old['id']}" in office.body
+    assert '/dashboard/tools/bookings?tile=overdue' in office.body
     assert tech.to == ['lucky@aps.example'] and 'Grinder' in tech.body and 'Saw' not in tech.body
     assert Booking.objects.get(pk=old['id']).overdue_alert_at is not None
 
