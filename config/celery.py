@@ -22,6 +22,7 @@ app.autodiscover_tasks([
     'apps.tools',            # tool booking alerts + daily overdue digest
     'apps.client_portal',    # ticket chat digests + new-ticket alerts (were missing)
     'apps.records',          # daily trash clean-up (was missing)
+    'apps.push',             # push notifications (ticket messages, low gas)
     # 'apps.otherapp',    # if you have more
 ])
 

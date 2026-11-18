@@ -213,3 +213,23 @@ class ChatPresence(models.Model):
 
     def __str__(self):
         return f'{self.user} ({self.side})'
+
+
+class TicketChatRead(models.Model):
+    """How far one person has read a ticket's chat (only while it was on screen).
+
+    ``Ticket.client_read_upto`` / ``staff_read_upto`` are per side, so they
+    can't say which staff member read it. This row is per person: the push
+    notification for a new message skips anyone whose marker already covers it,
+    i.e. who had that chat open when it arrived (apps.push.tickets).
+    """
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='ticket_chat_reads')
+    ticket = models.ForeignKey(Ticket, on_delete=models.CASCADE, related_name='chat_reads')
+    read_upto = models.PositiveBigIntegerField(default=0)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['user', 'ticket'], name='uniq_ticket_chat_read')]
+
+    def __str__(self):
+        return f'{self.user} read {self.ticket.reference} up to {self.read_upto}'

@@ -17,7 +17,10 @@ it's actually on screen). ``POST`` {body} adds a message and bumps the ticket's
 "last update".
 
 Nobody is emailed per message: a job every 5 minutes emails each side about
-messages they've left unread for 30 minutes (see digests.py).
+messages they've left unread for 30 minutes (see digests.py). A new message
+also pushes a notification to the other side's installed apps a few seconds
+later, skipping anyone who had the chat open (apps.push.tickets, which reads
+the per-person ``TicketChatRead`` marker kept here).
 """
 
 import logging
@@ -30,12 +33,13 @@ from rest_framework import generics, status
 from rest_framework.response import Response
 
 from apps.core.permissions import IsDashboardClient
+from apps.push.tickets import queue_ticket_message_push
 from apps.records import audit
 from apps.staff.permissions import HasDashboardPerm
 from utils.exceptions import custom_exception_handler
 
 from . import presence
-from .models import Ticket, TicketMessage
+from .models import Ticket, TicketChatRead, TicketMessage
 from .realtime import ticket_changed
 from .serializers import TicketMessageCreateSerializer, TicketMessageSerializer
 from .throttling import MessageWriteThrottle
@@ -48,6 +52,13 @@ MAX_MESSAGES = 500
 
 _READ_FIELD = {'client': 'client_read_upto', 'staff': 'staff_read_upto'}
 _OTHER = {'client': 'staff', 'staff': 'client'}
+
+
+def _mark_read_by(user, ticket, newest):
+    """This person's own read marker (the push notification checks it); only moves forward."""
+    row, created = TicketChatRead.objects.get_or_create(user=user, ticket=ticket, defaults={'read_upto': newest})
+    if not created:
+        TicketChatRead.objects.filter(pk=row.pk, read_upto__lt=newest).update(read_upto=newest)
 
 
 class _ChatView(generics.GenericAPIView):
@@ -95,6 +106,7 @@ class _ChatView(generics.GenericAPIView):
             # Only ever moves forward, even if two tabs race.
             if Ticket.objects.filter(pk=ticket.pk, **{f'{field}__lt': newest}).update(**{field: newest}):
                 ticket_changed(ticket, 'read')  # the sender's "Seen" updates live
+            _mark_read_by(request.user, ticket, newest)
         return Response(self._payload(ticket, messages))
 
     def post(self, request, pk):
@@ -111,6 +123,7 @@ class _ChatView(generics.GenericAPIView):
             # "last update" moves so busy conversations rise in the lists.
             Ticket.objects.filter(pk=ticket.pk).update(**{field: message.pk}, updated_at=timezone.now())
             ticket_changed(ticket, 'message')
+            queue_ticket_message_push(message)
             body = message.body
             audit.log(request.user, 'message_sent', ticket, summary=body if len(body) <= 200 else body[:199] + '…')
         presence.touch(request.user)
