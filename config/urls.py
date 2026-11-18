@@ -60,6 +60,7 @@ urlpatterns = [
     path('services-projects/', include('apps.services_and_projects.urls')),
     path('dashboard/', include('apps.solar_dashboard.urls')),
     path('accounts/', include('apps.accounts.urls')),
+    path('push/aps/', include('apps.push.urls')),
     path('fault-detection/', include('apps.fault_detection.urls')),
     path('whatsapp/', include('apps.whatsapp_import.urls')),
     path('weight-scale/', include('apps.weight_scale.urls')),

@@ -13,4 +13,5 @@ urlpatterns = [
     path('weight-scale/', include('apps.gas_guard.weight_scale.urls')),
     path('leads/', include('apps.gas_guard.leads.urls')),
     path('subscription/', include('apps.gas_guard.subscription.urls')),
+    path('push/', include('apps.push.gg_urls')),
 ]

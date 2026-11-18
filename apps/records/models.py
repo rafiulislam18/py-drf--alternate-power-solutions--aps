@@ -239,6 +239,8 @@ class AuditLog(models.Model):
         ('checked', 'Checked'),
         ('problem_flagged', 'Problem flagged'),
         ('problem_resolved', 'Problem resolved'),
+        ('notifications_on', 'Notifications turned on'),
+        ('notifications_off', 'Notifications turned off'),
     ]
 
     # Which side of the dashboard did it: the two Audit history pages.
