@@ -398,12 +398,14 @@ def return_items(user, booking, lines, *, date, notify=True):
         if line['condition'] != BookingItem.Condition.OK:
             problems.append(f'{item.tool_label}: {item.get_return_condition_display().lower()} ({line["note"]})')
         tool = Tool.objects.filter(pk=item.tool_id).first()
-        if (line.get('to_repair') and line['condition'] == BookingItem.Condition.DAMAGED and tool
+        # Damaged or missing parts can send the tool to repair (a missing part may make it unusable).
+        if (line.get('to_repair') and line['condition'] in BAD_CONDITIONS and tool
                 and tool.condition == Tool.Condition.IN_SERVICE):
             before = audit.snapshot(tool)
             tool.condition = Tool.Condition.IN_REPAIR
             tool.save(update_fields=['condition'])
-            audit.log_update(user, tool, before, summary=f'Came back damaged in {booking.booking_id}')
+            what = 'damaged' if line['condition'] == BookingItem.Condition.DAMAGED else 'with missing parts'
+            audit.log_update(user, tool, before, summary=f'Came back {what} in {booking.booking_id}')
 
     for item in returned:
         item.tool = Tool.all_objects.filter(pk=item.tool_id).first()

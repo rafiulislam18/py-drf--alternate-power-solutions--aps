@@ -203,6 +203,20 @@ def test_damaged_needs_a_note_and_can_send_the_tool_to_repair(api, lucky):
                                    summary__startswith='Came back damaged').exists()
 
 
+def test_missing_parts_can_send_the_tool_to_repair_too(api, lucky):
+    kept, sent = add_tool(api, name='Laser'), add_tool(api, name='Crimper')
+    res = book(api, lucky, [kept['id'], sent['id']])
+    lines = {i['tool']['name']: i['id'] for i in res['items']}
+    give_back(api, res, [
+        {'item': lines['Laser'], 'condition': 'missing_parts', 'note': 'Stand missing'},             # still usable
+        {'item': lines['Crimper'], 'condition': 'missing_parts', 'note': 'Die set missing', 'to_repair': True},
+    ])
+    assert Tool.objects.get(pk=kept['id']).condition == 'in_service'
+    assert Tool.objects.get(pk=sent['id']).condition == 'in_repair'
+    assert AuditLog.objects.filter(object_type='tools.tool', action='updated',
+                                   summary__startswith='Came back with missing parts').exists()
+
+
 def test_return_date_rules(api, lucky):
     drill = add_tool(api)
     res = book(api, lucky, [drill['id']], date_out=days_ago(5))
