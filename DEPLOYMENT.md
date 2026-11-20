@@ -208,6 +208,17 @@ The frontend build with the Notifications settings must be deployed first. Notif
 
 **Gas Guard:** open `/gas-guard`, sign in, install the Gas Guard app the same way. In Settings → Notifications, turn on and send a test. A real low-gas notification comes from the hourly check, once, when a cylinder drops to 30% or below.
 
+### 4.6 Scheduled notifications and admin alerts
+
+`migrate` (in the deploy) registers two scheduled jobs. Nothing to do by hand, but `celery-beat` must be restarted after the deploy (it is, in the restart line):
+
+| Job | When | What |
+|---|---|---|
+| APS Visits Today | Daily 07:00 | The Visits today email (to `EMAIL_RECIPIENT` + each assigned staff member with an email) and push. Nothing when there are no visits. The email can be switched off in Job settings. |
+| APS Overdue Tools Push | Hourly 07:05–18:05 | One push per booking when it becomes overdue. |
+
+**Choose who gets the team-wide alerts.** "Receive admin alerts" is off for everyone after the deploy, superusers too. Until someone has it on, only the technician and staff with "Can check tools" get overdue-tool pushes, and only assigned staff get their own visits. To turn it on: Staff accounts → open the person → tick **Receive admin alerts**.
+
 ---
 
 ## 5. Troubleshooting
