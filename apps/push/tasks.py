@@ -23,3 +23,9 @@ def push_job_assigned(job_id, user_ids, by_id=None):
     from .jobs import send_job_assigned_push
     send_job_assigned_push(job_id, user_ids, by_id)
 
+
+@shared_task
+def push_overdue_tools():
+    """Hourly 07:00–18:00 (migration 0003): bookings that just became overdue (apps.push.tools)."""
+    from .tools import check_overdue_tools
+    return check_overdue_tools()
