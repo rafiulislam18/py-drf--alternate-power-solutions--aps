@@ -19,7 +19,7 @@ Operations jobs API (mounted at ``/jobs/``) — staff only, per permission
     POST   /jobs/<id>/comments/    add a comment (jobs.comment)
     PATCH  /jobs/<id>/comments/<c>/ edit your own comment (jobs.comment)
     GET    /jobs/options/          categories, statuses, staff, clients + sites, colour thresholds
-    GET    /jobs/settings/         colour thresholds; PATCH needs jobs.settings
+    GET    /jobs/settings/         colour thresholds + the Visits today email switch; PATCH needs jobs.settings
     POST   /jobs/categories/       add a category (jobs.settings)
     PATCH  /jobs/categories/<id>/  rename / reorder / switch off (jobs.settings) - never deleted
 
@@ -48,9 +48,11 @@ from apps.staff.permissions import HasDashboardPerm
 from apps.solar_dashboard.models import Site
 from utils.exceptions import custom_exception_handler
 
+from apps.push.jobs import queue_job_assigned_push
+
 from .emails import queue_assignment_emails
 from .models import Job, JobCategory, JobComment, JobSettings, format_job_id, staff_name
-from .services import next_number, save_with_next_number
+from .services import next_number, save_with_next_number, visiting_today
 from .serializers import (
     CommentSerializer, JobCategorySerializer, JobSettingsSerializer, JobWriteSerializer, client_label, client_queryset, comment_data,
     job_detail, job_row, staff_queryset,
@@ -104,12 +106,6 @@ def watch_cutoff(thresholds):
 def needs_attention(thresholds):
     """Live jobs at "watch" or worse."""
     return Q(status__in=Job.LIVE, last_updated__lt=watch_cutoff(thresholds))
-
-
-def visiting_today():
-    """Booked for today (local date). Cancelled and not-accepted jobs aren't
-    visited, so they don't count."""
-    return Q(scheduled_date=timezone.localdate()) & ~Q(status__in=(Job.Status.CANCELLED, Job.Status.NOT_ACCEPTED))
 
 
 def jobs_summary(thresholds, archived=False):
@@ -229,6 +225,7 @@ class JobListView(_JobView):
             job.assigned_to.set(assignees)
             audit.log_create(request.user, job, summary=f'Assigned to {_names(assignees)}' if assignees else '')
             queue_assignment_emails(job, assignees, request.user)
+            queue_job_assigned_push(job, assignees, request.user)
             if comment:
                 c = JobComment.objects.create(job=job, author=request.user, author_name=staff_name(request.user),
                                               body=comment)
@@ -279,7 +276,9 @@ class JobDetailView(_JobView):
             changes['assigned_to'] = audit.change('Assigned to', _names(old_assignees), _names(assignees))
             job.assigned_to.set(assignees)
             before_ids = {u.pk for u in old_assignees}
-            queue_assignment_emails(job, [u for u in assignees if u.pk not in before_ids], request.user)
+            added = [u for u in assignees if u.pk not in before_ids]
+            queue_assignment_emails(job, added, request.user)
+            queue_job_assigned_push(job, added, request.user)
         event = None
         if changes:
             job.last_updated = timezone.now()

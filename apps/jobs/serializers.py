@@ -189,8 +189,8 @@ class CommentSerializer(serializers.Serializer):
 class JobSettingsSerializer(serializers.ModelSerializer):
     class Meta:
         model = JobSettings
-        fields = ['watch_days', 'aging_days', 'critical_days']
-        extra_kwargs = {f: {'min_value': 1, 'max_value': 365} for f in fields}
+        fields = ['watch_days', 'aging_days', 'critical_days', 'visits_email']
+        extra_kwargs = {f: {'min_value': 1, 'max_value': 365} for f in ('watch_days', 'aging_days', 'critical_days')}
 
     def validate(self, attrs):
         get = lambda name: attrs.get(name, getattr(self.instance, name))  # noqa: E731

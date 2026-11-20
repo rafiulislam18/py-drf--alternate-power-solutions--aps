@@ -106,3 +106,68 @@ def send_assignment_emails(job_id, user_ids, by_id=None):
             sent += 1
     logger.info(f'{job.job_id}: assignment email sent to {sent} of {len(user_ids)} person(s)')
     return sent
+
+
+# ── Visits today (07:00, see tasks.send_visits_today) ─────────────────────────
+
+def _visit_rows(jobs, links):
+    """One table row per visit: job ID (a link when ``links``), client, task, time, assignees."""
+    rows = []
+    for job in jobs:
+        jid = escape(job.job_id)
+        if links:
+            jid = f'<a href="{escape(f"{settings.FRONTEND_BASE_URL}/dashboard/jobs/{job.pk}")}" style="color: {ACCENT};">{jid}</a>'
+        task = job.task.strip()
+        task = task if len(task) <= 140 else task[:139].rstrip() + '…'
+        people = ', '.join(staff_name(u) for u in job.assigned_to.all()) or 'Nobody yet'
+        cell = 'padding: 8px; border-bottom: 1px solid #e5e7eb; vertical-align: top;'
+        sub = f'<br><span style="color: #666;">{escape(task)}</span>' if task else ''
+        rows.append(
+            f'<tr><td style="{cell} white-space: nowrap;"><strong>{jid}</strong></td>'
+            f'<td style="{cell}">{escape(job.client_name or job.category.name)}{sub}</td>'
+            f'<td style="{cell} white-space: nowrap;">{escape(job.scheduled_time.strip() or "Any time")}</td>'
+            f'<td style="{cell}">{escape(people)}</td></tr>'
+        )
+    head = 'padding: 8px; text-align: left; border-bottom: 2px solid #d1d5db; font-size: 12px; color: #666;'
+    return (f'<table style="width: 100%; border-collapse: collapse; font-size: 14px;">'
+            f'<tr><th style="{head}">Job</th><th style="{head}">Client / task</th><th style="{head}">Time</th>'
+            f'<th style="{head}">Assigned</th></tr>{"".join(rows)}</table>')
+
+
+def visits_email_html(jobs, today, greeting, links):
+    count = f'{len(jobs)} visit{"" if len(jobs) == 1 else "s"}'
+    body = f"""
+        <p style="margin: 0 0 12px;">{greeting}</p>
+        <p style="margin: 0 0 12px;"><strong>{count}</strong> booked for today, {today:%A %d %B %Y}.</p>
+        {_visit_rows(jobs, links)}
+        {button_html(f'{settings.FRONTEND_BASE_URL}/dashboard/jobs?visit=today', 'Open Visits today') if links else ''}
+    """
+    return wrap_html('Visits Today', body)
+
+
+def send_visits_today_emails(jobs, today):
+    """One email with every visit to EMAIL_RECIPIENT, and each assigned staff
+    member with an email gets their own list (links only if they can open
+    Jobs). Nothing when there are no visits. Returns how many emails went out."""
+    if not jobs:
+        return 0
+    subject_day = f'{today:%a %d %b}'
+    sent = 0
+    team = getattr(settings, 'EMAIL_RECIPIENT', '')
+    if team and send_html(f'APS: Visits today ({subject_day}) — {len(jobs)} booked',
+                          visits_email_html(jobs, today, 'Good morning,', links=True), [team],
+                          log_prefix='Visits today'):
+        sent += 1
+    mine = {}
+    for job in jobs:
+        for user in job.assigned_to.all():
+            if user.is_active and user.email:
+                mine.setdefault(user.pk, (user, []))[1].append(job)
+    for user, own in mine.values():
+        html = visits_email_html(own, today, f'Good morning {escape(user.first_name or staff_name(user))},',
+                                 links=has_perm(user, 'jobs.view'))
+        if send_html(f'APS: Your visits today ({subject_day}) — {len(own)}', html, [user.email],
+                     log_prefix='Visits today'):
+            sent += 1
+    logger.info(f'Visits today: {len(jobs)} visit(s), {sent} email(s) sent')
+    return sent

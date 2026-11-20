@@ -176,6 +176,8 @@ class JobSettings(models.Model):
     watch_days = models.PositiveSmallIntegerField(default=7)
     aging_days = models.PositiveSmallIntegerField(default=14)
     critical_days = models.PositiveSmallIntegerField(default=21)
+    # The 07:00 "Visits today" email (the push has each person's own switch).
+    visits_email = models.BooleanField('visits today email', default=True)
 
     class Meta:
         verbose_name = 'job settings'
