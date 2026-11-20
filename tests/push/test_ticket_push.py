@@ -216,3 +216,14 @@ def test_deleted_message_sends_nothing(sent, people, devices, ticket, django_cap
 def test_no_devices_no_send(sent, people, ticket, django_capture_on_commit_callbacks):
     post(api_for(people['client']), client_url(ticket), 'Hi', django_capture_on_commit_callbacks)
     sent.assert_not_called()
+
+
+def test_ticket_messages_switched_off(sent, people, devices, ticket, django_capture_on_commit_callbacks):
+    from apps.push.models import NotificationPrefs
+    NotificationPrefs.objects.create(user=people['reader'], off_types=['ticket_message'])
+    NotificationPrefs.objects.create(user=people['client'], off_types=['ticket_message'])
+    post(api_for(people['client']), client_url(ticket), 'Hello', django_capture_on_commit_callbacks)
+    assert sent_to(sent) == [endpoint(2)]  # the superuser only
+    sent.reset_mock()
+    post(api_for(people['reader']), staff_url(ticket), 'Reply', django_capture_on_commit_callbacks)
+    sent.assert_not_called()  # the client switched them off

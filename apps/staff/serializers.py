@@ -15,6 +15,20 @@ def _name(user):
     return user.get_full_name() or (getattr(getattr(user, 'client_profile', None), 'company_name', '') or '')
 
 
+def admin_alerts_on(user):
+    """"Receive admin alerts" (apps.push NotificationPrefs): a per-account switch, not a permission."""
+    from apps.push.models import NotificationPrefs
+    try:
+        return user.notification_prefs.admin_alerts
+    except NotificationPrefs.DoesNotExist:
+        return False
+
+
+def set_admin_alerts(user, on):
+    from apps.push.models import NotificationPrefs
+    NotificationPrefs.objects.update_or_create(user=user, defaults={'admin_alerts': on})
+
+
 class StaffAccountSerializer(serializers.Serializer):
     """A staff account as the Staff accounts page shows it."""
 
@@ -27,6 +41,7 @@ class StaffAccountSerializer(serializers.Serializer):
             'is_active': user.is_active,
             'is_superuser': user.is_superuser,
             'permissions': permissions_for(user) if user.is_active else [],
+            'admin_alerts': admin_alerts_on(user),
             'last_login': user.last_login,
             'date_joined': user.date_joined,
         }
@@ -71,6 +86,7 @@ class StaffCreateSerializer(serializers.Serializer):
     confirm_password = serializers.CharField(write_only=True, max_length=128)
     # Read permissions are on unless the superuser unticked them.
     permissions = _PermissionsField(required=False, default=lambda: list(catalogue.DEFAULT_PERMS))
+    admin_alerts = serializers.BooleanField(required=False, default=False)
 
     def validate_username(self, value):
         value = value.strip()
@@ -111,6 +127,8 @@ class StaffCreateSerializer(serializers.Serializer):
                                      verified_email=user.email)
         StaffAccess.objects.create(user=user, permissions=data['permissions'],
                                    created_by=self.context['request'].user)
+        if data.get('admin_alerts'):
+            set_admin_alerts(user, True)
         return user
 
 
@@ -119,6 +137,7 @@ class StaffUpdateSerializer(serializers.Serializer):
     email = serializers.EmailField(max_length=254, required=False, allow_blank=True)
     is_active = serializers.BooleanField(required=False)
     permissions = _PermissionsField(required=False)
+    admin_alerts = serializers.BooleanField(required=False)
     password = serializers.CharField(write_only=True, max_length=128, required=False)
     confirm_password = serializers.CharField(write_only=True, max_length=128, required=False)
 
@@ -160,5 +179,7 @@ class StaffUpdateSerializer(serializers.Serializer):
             access, _ = StaffAccess.objects.get_or_create(user=user, defaults={'created_by': self.context['request'].user})
             access.permissions = data['permissions']
             access.save()
+        if 'admin_alerts' in data:
+            set_admin_alerts(user, data['admin_alerts'])
         user._dashboard_perms = None
         return user

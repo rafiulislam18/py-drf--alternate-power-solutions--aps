@@ -11,6 +11,7 @@ users and sign-in (see urls.py):
 ``DELETE subscriptions/<id>/``  remove one of my devices
 ``POST unsubscribe/``           turn this device off ({endpoint}); also on sign-out
 ``POST test/``                  send a test notification now ({endpoint} = this device only)
+``GET/PATCH preferences/``      APS only: which notification types are on (Account settings)
 
 The test is sent straight away, not through Celery, so the button can say
 whether it worked.
@@ -28,7 +29,8 @@ from rest_framework.views import APIView
 from apps.records import audit
 
 from .devices import device_label
-from .models import PushSubscription
+from . import prefs
+from .models import NotificationPrefs, PushSubscription
 from .send import deliver, is_configured
 from .serializers import DeviceSerializer, EndpointSerializer, OptionalEndpointSerializer, SubscribeSerializer
 from .throttling import PushTestThrottle, PushWriteThrottle
@@ -144,3 +146,36 @@ class TestPushView(_PushView):
         else:
             detail = "The test notification couldn't be sent. Try again in a minute."
         return Response({'detail': detail, **counts})
+
+
+class PreferencesView(_PushView):
+    """APS only. GET: the push types this person can get, each on/off, and
+    whether they receive admin alerts (set on the Staff accounts page).
+    PATCH {type: true|false, …}: their own switches (all of their devices)."""
+
+    app = PushSubscription.App.APS
+
+    def _data(self, user):
+        p = prefs.prefs_for(user)
+        return {
+            'types': [{'key': key, 'label': prefs.LABELS[key], 'on': key not in p.off_types}
+                      for key in prefs.available_types(user)],
+            'admin_alerts': p.admin_alerts,
+        }
+
+    def get(self, request):
+        return Response(self._data(request.user))
+
+    def patch(self, request):
+        data = request.data if isinstance(request.data, dict) else {}
+        allowed = prefs.available_types(request.user)
+        bad = [k for k, v in data.items() if k not in allowed or not isinstance(v, bool)]
+        if bad or not data:
+            return Response({'detail': 'Send each notification type you can get as true or false.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        row, _ = NotificationPrefs.objects.get_or_create(user=request.user)
+        off = [k for k in row.off_types if k not in data] + [k for k, on in data.items() if not on]
+        row.off_types = sorted(set(off))
+        row.save(update_fields=['off_types', 'updated_at'])
+        logger.info(f'{request.user} notification types: off={row.off_types}')
+        return Response(self._data(request.user))

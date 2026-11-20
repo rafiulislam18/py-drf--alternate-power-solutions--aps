@@ -3,12 +3,14 @@ Staff accounts API (mounted at ``/staff/``) — superusers only.
 
     GET   permissions/        the permission catalogue, by section (+ the default read set)
     GET   accounts/           every staff account (superusers too, read-only)
-    POST  accounts/           {username, name, email?, password, confirm_password, permissions?}
+    POST  accounts/           {username, name, email?, password, confirm_password, permissions?, admin_alerts?}
     GET   accounts/<id>/
-    PATCH accounts/<id>/      {name?, email?, is_active?, permissions?, password + confirm_password?}
+    PATCH accounts/<id>/      {name?, email?, is_active?, permissions?, admin_alerts?, password + confirm_password?}
 
-Superuser accounts aren't edited here (they always have full access; use the
-Django admin). Nobody can deactivate themselves. Turning an account off ends
+``admin_alerts`` = "Receive admin alerts" (team-wide push alerts, apps.push):
+a per-account switch, not a permission, off by default for everyone. It's the
+only thing that can be changed on a superuser account here (they always have
+full access otherwise; use the Django admin). Nobody can deactivate themselves. Turning an account off ends
 its sessions straight away (inactive users fail JWT authentication).
 """
 
@@ -29,7 +31,7 @@ from utils.exceptions import custom_exception_handler
 from . import catalogue
 from .models import StaffAccess
 from .permissions import IsSuperuser
-from .serializers import StaffAccountSerializer, StaffCreateSerializer, StaffUpdateSerializer
+from .serializers import StaffAccountSerializer, StaffCreateSerializer, StaffUpdateSerializer, set_admin_alerts
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +41,7 @@ def staff_users():
     return User.objects.filter(
         Q(client_profile__role='admin') | Q(client_profile__isnull=True, is_staff=True)
         | Q(client_profile__isnull=True, is_superuser=True)
-    ).select_related('client_profile', 'staff_access').distinct()
+    ).select_related('client_profile', 'staff_access', 'notification_prefs').distinct()
 
 
 def _stored_perms(user):
@@ -56,9 +58,9 @@ def _log_staff_change(by, user, before, password_set):
     for field, label in (('name', 'Name'), ('email', 'Email')):
         if before[field] != after[field]:
             changes[field] = audit.change(label, before[field], after[field])
-    if before['is_active'] != after['is_active']:
-        changes['is_active'] = audit.change('Active', 'Yes' if before['is_active'] else 'No',
-                                            'Yes' if after['is_active'] else 'No')
+    for field, label in (('is_active', 'Active'), ('admin_alerts', 'Receive admin alerts')):
+        if before[field] != after[field]:
+            changes[field] = audit.change(label, 'Yes' if before[field] else 'No', 'Yes' if after[field] else 'No')
     added = [catalogue.LABELS.get(c, c) for c in after['permissions'] if c not in before['permissions']]
     removed = [catalogue.LABELS.get(c, c) for c in before['permissions'] if c not in after['permissions']]
     if added or removed:
@@ -95,8 +97,9 @@ class StaffAccountListView(_SuperuserView):
         ser = StaffCreateSerializer(data=request.data, context={'request': request})
         ser.is_valid(raise_exception=True)
         user = ser.save()
+        alerts = ', receives admin alerts' if ser.validated_data.get('admin_alerts') else ''
         audit.log(request.user, AuditLog.CREATED, audit.account(user), section='staff',
-                  summary=f'New staff account with {len(user.staff_access.permissions)} permission(s)')
+                  summary=f'New staff account with {len(user.staff_access.permissions)} permission(s){alerts}')
         logger.info(f'{request.user.username} created staff account {user.username} '
                     f'with {len(user.staff_access.permissions)} permission(s)')
         return Response(StaffAccountSerializer(user).data, status=status.HTTP_201_CREATED)
@@ -111,15 +114,20 @@ class StaffAccountDetailView(_SuperuserView):
 
     def patch(self, request, pk):
         user = self.get_user(pk)
-        if user.is_superuser:
-            return Response({'detail': 'Superusers always have full access — change them in the Django admin.'},
+        if user.is_superuser and set(request.data) - {'admin_alerts'}:
+            return Response({'detail': 'Superusers always have full access — change them in the Django admin. '
+                                       'Only “Receive admin alerts” can be changed here.'},
                             status=status.HTTP_400_BAD_REQUEST)
         if user.pk == request.user.pk and request.data.get('is_active') is False:
             return Response({'detail': 'You can’t turn off your own account.'}, status=status.HTTP_400_BAD_REQUEST)
         ser = StaffUpdateSerializer(user, data=request.data, partial=True, context={'request': request})
         ser.is_valid(raise_exception=True)
         before = {**StaffAccountSerializer(user).data, 'permissions': _stored_perms(user)}
-        user = ser.save()
+        if user.is_superuser:
+            # Only the alerts switch: the account itself (and its profile) stays untouched.
+            set_admin_alerts(user, ser.validated_data.get('admin_alerts', before['admin_alerts']))
+        else:
+            user = ser.save()
         _log_staff_change(request.user, User.objects.get(pk=user.pk), before, 'password' in ser.validated_data)
         logger.info(f'{request.user.username} updated staff account {user.username}: {sorted(ser.validated_data)}')
         return Response(StaffAccountSerializer(User.objects.get(pk=user.pk)).data)

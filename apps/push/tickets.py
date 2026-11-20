@@ -4,7 +4,8 @@ Push for ticket chat messages (APS dashboard).
 - A client's message goes to every staff member who can read ticket chats
   (``tickets.chat_view``; superusers always can).
 - A staff message goes to the ticket's client.
-- Never to the sender.
+- Never to the sender, nor to anyone who switched ticket messages off
+  (Account settings → Notifications, ``prefs.py``).
 
 The task runs :data:`PUSH_DELAY_SECONDS` after the message. By then, anyone
 with that chat open on screen has fetched it with ``read=1`` (the live
@@ -21,9 +22,10 @@ import logging
 
 from apps.client_portal.models import TicketChatRead, TicketMessage
 from apps.client_portal.serializers import TicketMessageSerializer
-from apps.staff.access import has_perm
+from apps.core.roles import is_dashboard_admin
 
 from .models import PushSubscription
+from .prefs import TICKET_MESSAGE, wants
 from .queue import after_commit
 from .send import deliver
 
@@ -53,10 +55,13 @@ def _subscriptions_for(message):
     subs = PushSubscription.objects.filter(app=PushSubscription.App.APS, user__is_active=True)
     if message.author_id:
         subs = subs.exclude(user_id=message.author_id)
-    if message.author_role == TicketMessage.Author.STAFF:
-        return list(subs.filter(user_id=ticket.client_id))
+    to_client = message.author_role == TicketMessage.Author.STAFF
+    if to_client:
+        subs = subs.filter(user_id=ticket.client_id)
     subs = subs.select_related('user__client_profile', 'user__staff_access')
-    return [s for s in subs if has_perm(s.user, 'tickets.chat_view')]
+    # A client's message goes to staff only (with tickets.chat_view); anyone may
+    # have switched ticket messages off.
+    return [s for s in subs if (to_client or is_dashboard_admin(s.user)) and wants(s.user, TICKET_MESSAGE)]
 
 
 def send_ticket_message_push(message_id):

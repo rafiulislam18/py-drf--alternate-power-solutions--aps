@@ -58,3 +58,26 @@ class PushSubscription(models.Model):
 
     def subscription_info(self):
         return {'endpoint': self.endpoint, 'keys': {'p256dh': self.p256dh, 'auth': self.auth}}
+
+
+class NotificationPrefs(models.Model):
+    """One APS dashboard account's notification settings (no row = the defaults).
+
+    - ``off_types``: the push types this person switched off in Account settings
+      (``apps.push.prefs.TYPES``); everything else is on.
+    - ``admin_alerts``: "Receive admin alerts", set on the Staff accounts page by
+      whoever manages staff. Not a permission (superusers have every permission
+      but still only get admin alerts when this is on). Off by default.
+    """
+
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='notification_prefs')
+    off_types = models.JSONField(default=list, blank=True)
+    admin_alerts = models.BooleanField('receive admin alerts', default=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'notification settings'
+        verbose_name_plural = 'notification settings'
+
+    def __str__(self):
+        return f'{self.user}: admin alerts {"on" if self.admin_alerts else "off"}, off: {", ".join(self.off_types) or "none"}'

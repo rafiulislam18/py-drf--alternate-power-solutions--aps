@@ -25,5 +25,8 @@ def _patterns(app, prefix, **auth):
 
 
 # APS: the project's default dashboard JWT authentication.
-urlpatterns = [*_patterns('aps', 'aps')]
+urlpatterns = [
+    *_patterns('aps', 'aps'),
+    path('preferences/', views.PreferencesView.as_view(), name='aps-push-preferences'),
+]
 gas_guard_urlpatterns = _patterns('gas_guard', 'gg', authentication_classes=[GasGuardJWTAuthentication])
