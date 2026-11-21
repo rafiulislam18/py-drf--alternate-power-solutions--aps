@@ -18,6 +18,7 @@ app.autodiscover_tasks([
     'apps.quote_sheet',
     'apps.solar_dashboard',
     'apps.gas_guard.alerts',
+    'apps.gas_guard.subscription',  # cancelled plans end after the paid month
     'apps.jobs',             # job assignment emails
     'apps.tools',            # tool booking alerts + daily overdue digest
     'apps.client_portal',    # ticket chat digests + new-ticket alerts (were missing)

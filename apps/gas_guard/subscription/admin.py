@@ -8,7 +8,7 @@ class SubscriptionAdmin(admin.ModelAdmin):
     # One row per SITE — a client with several sites has several rows.
     list_display = ['user', 'device', 'is_active', 'subscription_length',
                     'swap_addon_active', 'swap_addon_length',
-                    'last_payment_date', 'created_at']
+                    'last_payment_date', 'ends_at', 'swap_addon_ends_at', 'created_at']
     list_filter = ['is_active', 'swap_addon_active']
     list_select_related = ['user', 'device']
     search_fields = ['user__email', 'user__first_name', 'user__last_name',

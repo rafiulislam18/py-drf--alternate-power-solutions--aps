@@ -39,6 +39,9 @@ class Subscription(models.Model):
 
     is_active = models.BooleanField(default=False)
     subscription_length = models.IntegerField(default=0)  # confirmed months paid
+    # Cancelled, but paid until then: stays active (features, alerts) until this
+    # moment, then the hourly job switches it off (see lifecycle.py).
+    ends_at = models.DateTimeField(blank=True, null=True)
 
     # ── Cylinder-swap add-on (R199/mo), for THIS site ─────────────────────
     # An optional extra recurring plan on top of this site's R99 monitoring sub:
@@ -51,6 +54,8 @@ class Subscription(models.Model):
     swap_addon_payment_id = models.CharField(max_length=255, blank=True, null=True)
     swap_addon_length = models.IntegerField(default=0)  # confirmed months paid
     swap_addon_last_payment_date = models.DateTimeField(blank=True, null=True)
+    # Same for the add-on: cancelled, active until this moment.
+    swap_addon_ends_at = models.DateTimeField(blank=True, null=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -88,7 +93,12 @@ class Subscription(models.Model):
         wanted = user.Tier.SUBSCRIBED if any_active else user.Tier.DEVICE
         if user.tier != wanted:
             user.tier = wanted
-            user.save(update_fields=['tier'])
+            fields = ['tier']
+            if wanted == user.Tier.SUBSCRIBED and not user.email_alerts_enabled:
+                # A new subscriber starts with low-gas emails on.
+                user.email_alerts_enabled = True
+                fields.append('email_alerts_enabled')
+            user.save(update_fields=fields)
         return wanted
 
 

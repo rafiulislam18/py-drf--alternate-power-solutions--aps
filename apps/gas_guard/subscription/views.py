@@ -25,6 +25,10 @@ Flow (per plan, per site):
 3. The user is redirected back to ``return_url`` / ``cancel_url`` on the
    frontend, which re-fetches /users/me/ to pick up any changes.
 
+Cancelling (here, or a CANCELLED ITN) stops PayFast billing at once but keeps
+the plan active until the month already paid for ends (lifecycle.py); the
+hourly ``end_due_subscriptions`` task switches it off then.
+
 Signature + IP verification follow the APS / Lumo reference implementations.
 """
 
@@ -54,6 +58,7 @@ from rest_framework.views import APIView
 from apps.gas_guard.users.authentication import GasGuardJWTAuthentication
 from apps.gas_guard.weight_scale.models import ScaleDevice
 
+from . import lifecycle
 from .models import Payment, Subscription
 
 logger = logging.getLogger(__name__)
@@ -66,6 +71,11 @@ SWAP_ADDON_AMOUNT = '199.00'
 # m_payment_id prefixes, so one ITN endpoint can route both plans.
 MONITORING_PREFIX = 'sub-'
 SWAP_PREFIX = 'swap-'
+
+
+def _day(dt):
+    """'21 Dec 2026' in the local time zone (SAST)."""
+    return timezone.localtime(dt).strftime('%d %b %Y').lstrip('0')
 
 
 def _parse_m_payment_id(m_payment_id):
@@ -265,6 +275,9 @@ class SubscriptionStatusView(APIView):
             sub = subs_by_device.get(device.id)
             active = bool(sub and sub.is_active)
             swap_active = bool(sub and sub.swap_addon_active)
+            # Cancelled but still in the paid period: active until this date.
+            ends = _iso(sub.ends_at) if sub and active else None
+            swap_ends = _iso(sub.swap_addon_ends_at) if sub and swap_active else None
             sites.append({
                 'deviceId': device.id,
                 'name': device.name or device.device_id or f'Site {device.id}',
@@ -274,22 +287,25 @@ class SubscriptionStatusView(APIView):
                     'priceZar': int(float(SUBSCRIPTION_AMOUNT)),
                     'monthsPaid': sub.subscription_length if sub else 0,
                     'lastPaymentDate': _iso(sub.last_payment_date) if sub else None,
+                    'endsAt': ends,
                 },
                 'swapAddon': {
                     'active': swap_active,
                     'priceZar': int(float(SWAP_ADDON_AMOUNT)),
                     'monthsPaid': sub.swap_addon_length if sub else 0,
                     'lastPaymentDate': _iso(sub.swap_addon_last_payment_date) if sub else None,
-                    # The add-on needs THIS site's monitoring to be active.
-                    'available': active,
+                    'endsAt': swap_ends,
+                    # The add-on needs THIS site's monitoring to be active (and staying).
+                    'available': active and not ends,
                 },
             })
 
         active_sites = [s for s in sites if s['monitoring']['active']]
         swap_sites = [s for s in sites if s['swapAddon']['active']]
+        # What will be billed next month: cancelled plans (still running) aren't.
         monthly_total = (
-            len(active_sites) * int(float(SUBSCRIPTION_AMOUNT))
-            + len(swap_sites) * int(float(SWAP_ADDON_AMOUNT))
+            len([s for s in active_sites if not s['monitoring']['endsAt']]) * int(float(SUBSCRIPTION_AMOUNT))
+            + len([s for s in swap_sites if not s['swapAddon']['endsAt']]) * int(float(SWAP_ADDON_AMOUNT))
         )
 
         return Response({
@@ -397,10 +413,11 @@ class CreatePayFastCheckoutSession(APIView):
                 user=user, device=device,
             )
             if subscription.is_active:
-                return Response(
-                    {'detail': f'{device.name or "This site"} is already subscribed.'},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
+                detail = f'{device.name or "This site"} is already subscribed.'
+                if subscription.ends_at:
+                    detail = (f'{device.name or "This site"} stays active until '
+                              f'{_day(subscription.ends_at)}. You can subscribe again after that.')
+                return Response({'detail': detail}, status=status.HTTP_400_BAD_REQUEST)
 
             site_label = device.name or device.device_id or f'Site {device.id}'
             data = _build_payfast_data(
@@ -502,6 +519,11 @@ class CancelSubscriptionView(APIView):
                 {'detail': f"{site_label} doesn't have an active subscription to cancel."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        if subscription.ends_at:
+            return Response(
+                {'detail': f'{site_label} is already cancelled. It stays active until {_day(subscription.ends_at)}.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         # Cancel the recurring billing upstream first; if that fails in
         # production, don't lie to the user by flipping the local state.
@@ -512,18 +534,17 @@ class CancelSubscriptionView(APIView):
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 
-        with transaction.atomic():
-            # Cascade: no monitoring on this site → no add-on on this site.
-            if subscription.swap_addon_active:
-                cancel_payfast_subscription(subscription.swap_addon_token)
-                subscription.swap_addon_active = False
-            subscription.is_active = False
-            subscription.save()
-            # Account tier follows the remaining sites, not this one.
-            subscription.sync_user_tier()
+        # Cascade: no monitoring on this site, no add-on on this site (its billing stops now too).
+        if subscription.swap_addon_active and not subscription.swap_addon_ends_at:
+            cancel_payfast_subscription(subscription.swap_addon_token)
+        # Billing has stopped; the site keeps its features until the paid month ends.
+        until = lifecycle.cancel_monitoring(subscription)
 
-        logger.info(f'Monitoring cancelled for {site_label} by user {user.email}')
-        return Response({'detail': f'The subscription for {site_label} has been cancelled.'})
+        logger.info(f'Monitoring cancelled for {site_label} by user {user.email} (active until {until})')
+        if until:
+            return Response({'detail': f'The subscription for {site_label} has been cancelled. '
+                                       f'It stays active until {_day(until)}.', 'endsAt': until.isoformat()})
+        return Response({'detail': f'The subscription for {site_label} has been cancelled.', 'endsAt': None})
 
 
 @method_decorator(csrf_exempt, name='dispatch')
@@ -552,6 +573,12 @@ class CancelSwapAddonView(APIView):
                 {'detail': f"{site_label} doesn't have the cylinder-swap add-on to cancel."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        if subscription.swap_addon_ends_at:
+            return Response(
+                {'detail': f'The add-on for {site_label} is already cancelled. '
+                           f'It stays active until {_day(subscription.swap_addon_ends_at)}.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         if not cancel_payfast_subscription(subscription.swap_addon_token):
             return Response(
@@ -560,12 +587,12 @@ class CancelSwapAddonView(APIView):
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 
-        subscription.swap_addon_active = False
-        subscription.save(update_fields=['swap_addon_active', 'updated_at'])
-        logger.info(f'Cylinder-swap add-on cancelled for {site_label} by {user.email}')
-        return Response({
-            'detail': f'The cylinder-swap add-on for {site_label} has been cancelled.',
-        })
+        until = lifecycle.cancel_swap_addon(subscription)
+        logger.info(f'Cylinder-swap add-on cancelled for {site_label} by {user.email} (active until {until})')
+        if until:
+            return Response({'detail': f'The cylinder-swap add-on for {site_label} has been cancelled. '
+                                       f'It stays active until {_day(until)}.', 'endsAt': until.isoformat()})
+        return Response({'detail': f'The cylinder-swap add-on for {site_label} has been cancelled.', 'endsAt': None})
 
 
 @csrf_exempt
@@ -666,6 +693,7 @@ def _handle_complete_payment(plan, subscription, post_data):
         subscription.swap_addon_payment_id = pf_payment_id
         subscription.swap_addon_last_payment_date = now
         subscription.swap_addon_length += 1
+        subscription.swap_addon_ends_at = None  # paid again: no longer on its way out
         subscription.save()
         logger.info(f'Cylinder-swap add-on activated for {user.email}')
     else:
@@ -674,6 +702,7 @@ def _handle_complete_payment(plan, subscription, post_data):
         subscription.payfast_payment_id = pf_payment_id
         subscription.last_payment_date = now
         subscription.subscription_length += 1
+        lifecycle.resume(subscription)  # paid again: no longer on its way out
         subscription.save()
         # Account tier follows the whole portfolio, not just this site.
         subscription.sync_user_tier()
@@ -684,17 +713,18 @@ def _handle_complete_payment(plan, subscription, post_data):
 
 
 def _handle_cancelled_payment(plan, subscription):
-    """Apply a CANCELLED ITN — deactivate the relevant plan."""
+    """
+    Apply a CANCELLED ITN (cancelled at PayFast, or by PayFast after failed
+    payments): the plan stays active until its paid month ends, or ends now if
+    that's already over (lifecycle.py).
+    """
     if plan == Payment.Plan.CYLINDER_SWAP:
-        subscription.swap_addon_active = False
-        subscription.save(update_fields=['swap_addon_active', 'updated_at'])
-        logger.info(f'Cylinder-swap add-on cancelled for subscription {subscription.id}')
-    else:
-        subscription.is_active = False
-        subscription.save(update_fields=['is_active', 'updated_at'])
-        # Tier drops only once no other site is still active.
-        subscription.sync_user_tier()
-        logger.info(f'Monitoring cancelled for subscription {subscription.id}')
+        if subscription.swap_addon_active:
+            until = lifecycle.cancel_swap_addon(subscription)
+            logger.info(f'Cylinder-swap add-on cancelled for subscription {subscription.id} (active until {until})')
+    elif subscription.is_active:
+        until = lifecycle.cancel_monitoring(subscription)
+        logger.info(f'Monitoring cancelled for subscription {subscription.id} (active until {until})')
 
 
 @csrf_exempt
