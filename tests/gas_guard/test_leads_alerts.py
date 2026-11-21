@@ -147,3 +147,65 @@ def test_low_gas_alert_state_str(owner):
     dev = _device_with_total(owner, '20.0')
     state = LowGasAlertState.objects.create(device=dev, is_active=True)
     assert 'LOW' in str(state)
+
+
+# ── who gets the low-gas email: the owner only for a monitored site ──────────
+
+def _recipients(mock):
+    """The recipient list of each send_low_gas_email call."""
+    return [c.args[1] for c in mock.call_args_list]
+
+
+@override_settings(GAS_GUARD_LOW_GAS_THRESHOLD_PCT=30, EMAIL_RECIPIENT='info@aps.example')
+@pytest.mark.django_db
+@patch(SEND_EMAIL_PATH, return_value=True)
+def test_monitored_site_emails_owner_and_office(mock_email, owner):
+    from apps.gas_guard.subscription.models import Subscription
+    dev = _device_with_total(owner, '20.0')
+    Subscription.objects.create(user=owner, device=dev, is_active=True)
+    owner.notify_email = 'alerts@owner.example'
+    owner.save()
+    check_low_gas.apply().get()
+    assert _recipients(mock_email) == [['alerts@owner.example', 'info@aps.example']]
+
+
+@override_settings(GAS_GUARD_LOW_GAS_THRESHOLD_PCT=30, EMAIL_RECIPIENT='info@aps.example')
+@pytest.mark.django_db
+@pytest.mark.parametrize('subscription', [None, False])  # never subscribed / cancelled
+@patch(SEND_EMAIL_PATH, return_value=True)
+def test_unmonitored_site_emails_the_office_only(mock_email, owner, subscription):
+    from apps.gas_guard.subscription.models import Subscription
+    dev = _device_with_total(owner, '20.0')
+    if subscription is not None:
+        Subscription.objects.create(user=owner, device=dev, is_active=subscription)
+    check_low_gas.apply().get()
+    assert _recipients(mock_email) == [['info@aps.example']]
+    # The refill email follows the same rule.
+    WeightReading.objects.create(device=dev, weight=Decimal('46.0'), unit='kg', received_at=timezone.now())
+    check_low_gas.apply().get()
+    assert _recipients(mock_email)[1] == ['info@aps.example']
+
+
+@override_settings(GAS_GUARD_LOW_GAS_THRESHOLD_PCT=30, EMAIL_RECIPIENT='info@aps.example')
+@pytest.mark.django_db
+@patch(SEND_EMAIL_PATH, return_value=True)
+def test_subscription_is_per_site(mock_email, owner):
+    from apps.gas_guard.subscription.models import Subscription
+    paid = _device_with_total(owner, '45.0')
+    Subscription.objects.create(user=owner, device=paid, is_active=True)  # account tier: subscribed
+    _device_with_total(owner, '20.0')  # this one isn't subscribed
+    check_low_gas.apply().get()
+    assert _recipients(mock_email) == [['info@aps.example']]
+
+
+@pytest.mark.django_db
+def test_site_is_monitored(owner):
+    from apps.gas_guard.subscription.models import Subscription, site_is_monitored
+    dev = _device_with_total(owner, '45.0')
+    assert site_is_monitored(dev) is False
+    sub = Subscription.objects.create(user=owner, device=dev, is_active=True)
+    assert site_is_monitored(dev) is True
+    sub.is_active = False
+    sub.save()
+    assert site_is_monitored(dev) is False
+    assert site_is_monitored(None) is False

@@ -4,12 +4,15 @@ Push for Gas Guard low gas.
 Sent from the hourly check (``apps.gas_guard.alerts.tasks``) at the same moment
 as the low-gas email: only when a cylinder crosses into low (the
 ``LowGasAlertState`` latch), not every hour while it stays low, and not on a
-refill. Goes to the site's owner (whatever their plan, like the email) and to
-every Gas Guard admin (``GasGuardUser.is_staff``; APS staff are separate).
+refill. Goes to every Gas Guard admin (``GasGuardUser.is_staff``; APS staff are
+separate) for every site, and to the site's owner only while that site has an
+active Monitoring subscription (low-gas alerts are part of the paid plan; same
+rule as the email, ``site_is_monitored``).
 """
 
 import logging
 
+from apps.gas_guard.subscription.models import site_is_monitored
 from apps.gas_guard.users.models import GasGuardUser
 from apps.gas_guard.weight_scale.models import ScaleDevice
 
@@ -30,7 +33,7 @@ def send_low_gas_push(device_id, site_name, pct):
     if device is None:
         return None
     recipients = set(GasGuardUser.objects.filter(is_staff=True, is_active=True).values_list('pk', flat=True))
-    if device.owner is not None and device.owner.is_active:
+    if device.owner is not None and device.owner.is_active and site_is_monitored(device):
         recipients.add(device.owner.pk)
     subs = list(PushSubscription.objects.filter(app=PushSubscription.App.GAS_GUARD, gg_user_id__in=recipients))
     if not subs:

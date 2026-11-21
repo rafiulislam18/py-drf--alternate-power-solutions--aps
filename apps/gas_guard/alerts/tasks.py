@@ -3,9 +3,15 @@ Hourly low-gas alerting.
 
 Every hour (scheduled via django-celery-beat) we check every active site's
 remaining gas percentage. When a cylinder crosses at/below the low threshold
-(default 30%) we email both the client (site owner) and the APS admin inbox,
-and push a notification to the owner's and the Gas Guard admins' devices
-(apps.push.gas; no push on a refill).
+(default 30%) we email the APS admin inbox and push to the Gas Guard admins'
+devices (apps.push.gas; no push on a refill), for every site.
+
+The site's owner gets the email (and the push) only while THAT site has an
+active Monitoring subscription (``site_is_monitored``): low-gas alerts are part
+of the paid plan, and billing is per site. "Active" = its Subscription row has
+``is_active`` (set by a COMPLETE PayFast payment, cleared straight away by a
+CANCELLED one or by cancelling in Plans; a FAILED payment changes nothing).
+The same goes for the refill email.
 
 Alerting is edge-triggered per site via LowGasAlertState: an alert fires once
 when a site drops to low, stays quiet while it remains low, and a recovery email
@@ -20,6 +26,7 @@ from celery import shared_task
 from django.conf import settings
 from django.utils import timezone
 
+from apps.gas_guard.subscription.models import site_is_monitored
 from apps.gas_guard.weight_scale.models import ScaleDevice
 from apps.gas_guard.weight_scale.services import site_payload
 from apps.push.gas import queue_low_gas_push
@@ -45,10 +52,10 @@ def _pct_from_payload(payload):
 
 
 def _recipients_for(device):
-    """Client (owner) + admin addresses for this device's alerts."""
+    """Admin inbox always; the owner only while the site is on the Monitoring plan."""
     recipients = []
     owner = device.owner
-    if owner is not None:
+    if owner is not None and site_is_monitored(device):
         # Prefer the owner's chosen notify address, else their login email.
         recipients.append(getattr(owner, 'notify_email', '') or owner.email)
     admin = getattr(settings, 'EMAIL_RECIPIENT', None)

@@ -92,6 +92,21 @@ class Subscription(models.Model):
         return wanted
 
 
+def site_is_monitored(device):
+    """
+    This site is on the Monitoring plan right now: its own Subscription row is
+    active (billing is per site, so not the owner's account-wide tier).
+
+    ``is_active`` is the only state there is: a COMPLETE PayFast payment sets
+    it, a CANCELLED one (or cancelling in Plans) clears it straight away, and a
+    FAILED payment changes nothing (the site stays active until PayFast cancels).
+    Gates the paid features of that site, e.g. the owner's low-gas alerts.
+    """
+    if device is None:
+        return False
+    return Subscription.objects.filter(device=device, is_active=True).exists()
+
+
 class Payment(models.Model):
     """
     An immutable record of a single confirmed PayFast payment.
