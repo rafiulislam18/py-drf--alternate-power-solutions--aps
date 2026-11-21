@@ -209,3 +209,68 @@ def test_site_is_monitored(owner):
     sub.save()
     assert site_is_monitored(dev) is False
     assert site_is_monitored(None) is False
+
+
+# ── the owner's "Low-gas email alerts" switch ────────────────────────────────
+
+@override_settings(GAS_GUARD_LOW_GAS_THRESHOLD_PCT=30, EMAIL_RECIPIENT='info@aps.example')
+@pytest.mark.django_db
+@patch(SEND_EMAIL_PATH, return_value=True)
+def test_switch_off_means_no_owner_email_for_any_site(mock_email, owner):
+    from apps.gas_guard.subscription.models import Subscription
+    owner.email_alerts_enabled = False
+    owner.save()
+    dev = _device_with_total(owner, '20.0')
+    Subscription.objects.create(user=owner, device=dev, is_active=True)
+    check_low_gas.apply().get()
+    assert _recipients(mock_email) == [['info@aps.example']]  # the office still gets it
+    WeightReading.objects.create(device=dev, weight=Decimal('46.0'), unit='kg', received_at=timezone.now())
+    check_low_gas.apply().get()
+    assert _recipients(mock_email)[1] == ['info@aps.example']  # refill email too
+
+
+@pytest.mark.django_db
+def test_new_accounts_start_with_email_alerts_on():
+    user = GasGuardUser(email='new@example.com')
+    user.set_password('x')
+    user.save()
+    assert GasGuardUser.objects.get(pk=user.pk).email_alerts_enabled is True
+
+
+@pytest.mark.django_db
+def test_becoming_a_subscriber_switches_email_alerts_on(owner):
+    from apps.gas_guard.subscription.models import Subscription
+    owner.tier = GasGuardUser.Tier.DEVICE
+    owner.email_alerts_enabled = False
+    owner.save()
+    dev = _device_with_total(owner, '45.0')
+    sub = Subscription.objects.create(user=owner, device=dev, is_active=True)
+    sub.sync_user_tier()
+    owner.refresh_from_db()
+    assert (owner.tier, owner.email_alerts_enabled) == (GasGuardUser.Tier.SUBSCRIBED, True)
+    # Already a subscriber who switched it off: a second site doesn't switch it back on.
+    owner.email_alerts_enabled = False
+    owner.save()
+    dev2 = ScaleDevice.objects.create(device_id='dev-2', name='Second', owner=owner)
+    Subscription.objects.create(user=owner, device=dev2, is_active=True).sync_user_tier()
+    owner.refresh_from_db()
+    assert owner.email_alerts_enabled is False
+
+
+@pytest.mark.django_db
+def test_migration_switches_it_on_for_owners_of_active_subscriptions(owner):
+    import importlib
+    from django.apps import apps
+    from apps.gas_guard.subscription.models import Subscription
+    migration = importlib.import_module('apps.gas_guard.users.migrations.0004_email_alerts_on_for_subscribers')
+    paying = owner
+    lapsed = GasGuardUser.objects.create(email='lapsed@example.com')
+    free = GasGuardUser.objects.create(email='free@example.com')
+    GasGuardUser.objects.update(email_alerts_enabled=False)  # as it was before (default off)
+    Subscription.objects.create(user=paying, device=_device_with_total(paying, '45.0'), is_active=True)
+    lapsed_dev = ScaleDevice.objects.create(device_id='dev-l', name='Lapsed', owner=lapsed)
+    Subscription.objects.create(user=lapsed, device=lapsed_dev, is_active=False)
+    ScaleDevice.objects.create(device_id='dev-f', name='Free', owner=free)
+    migration.switch_on(apps, None)
+    on = dict(GasGuardUser.objects.values_list('email', 'email_alerts_enabled'))
+    assert on == {'owner@example.com': True, 'lapsed@example.com': False, 'free@example.com': False}

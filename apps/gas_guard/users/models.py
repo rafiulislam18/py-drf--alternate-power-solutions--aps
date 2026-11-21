@@ -37,7 +37,10 @@ class GasGuardUser(AbstractBaseUser, PermissionsMixin):
         max_length=12, choices=Tier.choices, default=Tier.DEVICE
     )
     # Low-gas email alert preferences (subscriber feature).
-    email_alerts_enabled = models.BooleanField(default=False)
+    # On by default, and switched on again whenever the account becomes a
+    # subscriber (Subscription.sync_user_tier). Off = no low-gas or refill email
+    # for any of their sites (push has its own settings).
+    email_alerts_enabled = models.BooleanField(default=True)
     # Alerts go here when set; falls back to the login email otherwise.
     notify_email = models.EmailField(blank=True)
 

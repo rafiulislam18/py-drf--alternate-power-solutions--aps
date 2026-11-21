@@ -8,7 +8,8 @@ devices (apps.push.gas; no push on a refill), for every site.
 
 The site's owner gets the email (and the push) only while THAT site has an
 active Monitoring subscription (``site_is_monitored``): low-gas alerts are part
-of the paid plan, and billing is per site. "Active" = its Subscription row has
+of the paid plan, and billing is per site. The email also needs the owner's
+"Low-gas email alerts" switch on (Settings; push has its own settings). "Active" = its Subscription row has
 ``is_active`` (set by a COMPLETE PayFast payment, cleared straight away by a
 CANCELLED one or by cancelling in Plans; a FAILED payment changes nothing).
 The same goes for the refill email.
@@ -52,10 +53,11 @@ def _pct_from_payload(payload):
 
 
 def _recipients_for(device):
-    """Admin inbox always; the owner only while the site is on the Monitoring plan."""
+    """Admin inbox always; the owner only while the site is on the Monitoring plan
+    and their "Low-gas email alerts" switch is on."""
     recipients = []
     owner = device.owner
-    if owner is not None and site_is_monitored(device):
+    if owner is not None and owner.email_alerts_enabled and site_is_monitored(device):
         # Prefer the owner's chosen notify address, else their login email.
         recipients.append(getattr(owner, 'notify_email', '') or owner.email)
     admin = getattr(settings, 'EMAIL_RECIPIENT', None)
