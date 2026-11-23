@@ -160,12 +160,12 @@ def test_task_runs_end_due(owner, site):
     assert end_due_subscriptions.apply().get() == '1 monitoring and 0 add-on plan(s) ended'
 
 
-# ── PayFast's own notifications ─────────────────────────────────────────────
+# ── PayFast's own notifications (they carry the subscription's token) ─────────
 
 @override_settings(**PAYFAST_TEST_SETTINGS)
 def test_cancelled_itn_keeps_it_until_the_paid_month_ends(api_client, owner, site):
     sub = paid_sub(owner, site, days_ago=3)
-    assert api_client.post(NOTIFY, _itn(sub.id, status='CANCELLED'), format='multipart').status_code == 200
+    assert api_client.post(NOTIFY, {**_itn(sub.id, status='CANCELLED'), 'token': 'tok'}, format='multipart').status_code == 200
     sub.refresh_from_db()
     assert sub.is_active is True and sub.ends_at == sub.last_payment_date + relativedelta(months=1)
 
@@ -173,7 +173,7 @@ def test_cancelled_itn_keeps_it_until_the_paid_month_ends(api_client, owner, sit
 @override_settings(**PAYFAST_TEST_SETTINGS)
 def test_cancelled_itn_after_the_period_ends_now(api_client, owner, site):
     sub = paid_sub(owner, site, days_ago=35)  # PayFast gave up after failed payments
-    api_client.post(NOTIFY, _itn(sub.id, status='CANCELLED'), format='multipart')
+    api_client.post(NOTIFY, {**_itn(sub.id, status='CANCELLED'), 'token': 'tok'}, format='multipart')
     sub.refresh_from_db()
     assert sub.is_active is False
 
@@ -181,7 +181,8 @@ def test_cancelled_itn_after_the_period_ends_now(api_client, owner, site):
 @override_settings(**PAYFAST_TEST_SETTINGS)
 def test_cancelled_itn_for_the_add_on(api_client, owner, site):
     sub = paid_sub(owner, site, swap_days_ago=4)
-    api_client.post(NOTIFY, _itn(sub.id, prefix='swap-', amount='199.00', status='CANCELLED'), format='multipart')
+    api_client.post(NOTIFY, {**_itn(sub.id, prefix='swap-', amount='199.00', status='CANCELLED'), 'token': 'swap-tok'},
+                    format='multipart')
     sub.refresh_from_db()
     assert sub.swap_addon_active is True and sub.swap_addon_ends_at is not None
 
