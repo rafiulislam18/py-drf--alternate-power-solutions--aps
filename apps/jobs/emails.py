@@ -17,7 +17,7 @@ from django.db import transaction
 from django.utils.html import escape, linebreaks
 
 from apps.core.mail import ACCENT, button_html, send_html, wrap_html
-from apps.staff.access import has_perm
+from apps.core.roles import is_dashboard_admin
 
 from .models import Job, staff_name
 
@@ -77,9 +77,9 @@ def send_assignment_email(job, user, by=None):
     ]
     task = (f'<div style="margin: 12px 0; padding: 10px 12px; background: #f8f9fa; border-left: 3px solid {ACCENT};">'
             f'{linebreaks(escape(job.task))}</div>') if job.task else ''
-    # The link only helps people who can open the Jobs page.
+    # Every staff member can open the jobs they're on.
     link = (button_html(f'{settings.FRONTEND_BASE_URL}/dashboard/jobs/{job.pk}', 'Open the job')
-            if has_perm(user, 'jobs.view') else '')
+            if is_dashboard_admin(user) else '')
     who = f' by <strong>{escape(staff_name(by))}</strong>' if by else ''
     body = f"""
         <p style="margin: 0 0 12px;">Hi {escape(user.first_name or staff_name(user))},</p>
@@ -147,8 +147,8 @@ def visits_email_html(jobs, today, greeting, links):
 
 def send_visits_today_emails(jobs, today):
     """One email with every visit to EMAIL_RECIPIENT, and each assigned staff
-    member with an email gets their own list (links only if they can open
-    Jobs). Nothing when there are no visits. Returns how many emails went out."""
+    member with an email gets their own list (with links: everyone can open the
+    jobs they're on). Nothing when there are no visits. Returns how many emails went out."""
     if not jobs:
         return 0
     subject_day = f'{today:%a %d %b}'
@@ -165,7 +165,7 @@ def send_visits_today_emails(jobs, today):
                 mine.setdefault(user.pk, (user, []))[1].append(job)
     for user, own in mine.values():
         html = visits_email_html(own, today, f'Good morning {escape(user.first_name or staff_name(user))},',
-                                 links=has_perm(user, 'jobs.view'))
+                                 links=is_dashboard_admin(user))
         if send_html(f'APS: Your visits today ({subject_day}) — {len(own)}', html, [user.email],
                      log_prefix='Visits today'):
             sent += 1

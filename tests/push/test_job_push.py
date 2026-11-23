@@ -109,12 +109,14 @@ def test_only_newly_added_people_and_never_the_assigner(sent, boss, lucky, themb
     assert [u for u, _ in payloads(sent)] == [endpoint(1)]  # Themba only: Lucky was already on it
 
 
-def test_needs_jobs_view_and_their_switch(sent, boss, lucky, no_jobs, django_capture_on_commit_callbacks):
+def test_every_assigned_staff_member_and_their_switch(sent, boss, lucky, no_jobs,
+                                                       django_capture_on_commit_callbacks):
     aps_device(lucky, 1)
     aps_device(no_jobs, 2)
     NotificationPrefs.objects.create(user=lucky, off_types=['job_assigned'])
     create_via_api(api_for(boss), django_capture_on_commit_callbacks, assigned_to=[lucky.pk, no_jobs.pk])
-    sent.assert_not_called()
+    # Noah has no jobs.view but can open the jobs he's on; Lucky switched it off.
+    assert [u for u, _ in payloads(sent)] == [endpoint(2)]
 
 
 def test_taken_off_or_trashed_before_the_push(sent, boss, lucky):
@@ -181,7 +183,7 @@ def test_each_assignee_gets_their_own_visits(sent, settings, visits, lucky, them
 
 def test_admin_alerts_get_one_push_with_every_visit(sent, visits, lucky, themba, no_jobs):
     admin_alerts(lucky)       # assigned AND admin alerts: only the full list
-    admin_alerts(no_jobs)     # admin alerts but can't see Jobs: nothing
+    admin_alerts(no_jobs)     # admin alerts but not "see all jobs" (jobs.view): nothing
     office = make_staff('office', ['jobs.view'])
     admin_alerts(office)
     for n, u in enumerate([lucky, themba, no_jobs, office]):
@@ -245,9 +247,9 @@ def test_visits_email_to_the_office_and_each_assignee(email_on, visits, lucky, t
     mine = to['themba@aps.example'].body
     assert visits['b'].job_id in mine and visits['a'].job_id not in mine
     assert to['themba@aps.example'].subject.endswith('— 1')
-    # Can't open Jobs: the list, without links.
+    # No jobs.view, but the jobs he's on are his to open: links too.
     noah = to['noah@aps.example'].body
-    assert visits['b'].job_id in noah and '/dashboard/jobs' not in noah
+    assert visits['b'].job_id in noah and f'/dashboard/jobs/{visits["b"].pk}' in noah
 
 
 def test_visits_email_switch_pauses_only_the_email(email_on, sent, visits, lucky):

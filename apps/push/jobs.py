@@ -2,12 +2,13 @@
 Push for jobs (APS dashboard staff).
 
 - Job assigned: the moment someone is added to a job's assignees (same moment
-  as the assignment email), to each newly added person with ``jobs.view``, never
-  the person assigning. "Job assigned: APS-123 · {client}".
+  as the assignment email), to each newly added staff member (they can open the
+  jobs they're on), never the person assigning. "Job assigned: APS-123 · {client}".
 - Visits today: the 07:00 run (``apps.jobs.tasks.send_visits_today``). Each
   assigned staff member gets their own visits; accounts with "Receive admin
-  alerts" get one push with all of them instead (only that one). Nothing when
-  there are no visits. Same visits as the tile (``apps.jobs.services.todays_visits``).
+  alerts" that can see all jobs (``jobs.view``) get one push with all of them
+  instead (only that one). Nothing when there are no visits. Same visits as
+  the tile (``apps.jobs.services.todays_visits``).
 
 Each person's own switches apply (``prefs.py``). One tag per job / per day, so a
 repeat replaces the last one instead of stacking.
@@ -16,6 +17,8 @@ repeat replaces the last one instead of stacking.
 import logging
 
 from django.contrib.auth import get_user_model
+
+from apps.jobs.visibility import sees_all_jobs
 
 from .prefs import JOB_ASSIGNED, VISITS_TODAY, admin_alert_users, subscriptions_for
 from .queue import after_commit
@@ -88,7 +91,8 @@ def send_visits_today_push(jobs, today):
     result = {'people': 0, 'sent': 0}
     if not jobs:
         return result
-    admins = admin_alert_users(VISITS_TODAY)
+    # The all-visits push is for admin-alert accounts that can see every job (jobs.view).
+    admins = [u for u in admin_alert_users(VISITS_TODAY) if sees_all_jobs(u)]
     admin_ids = {u.pk for u in admins}
     sends = [(admins, jobs)]
     mine = {}

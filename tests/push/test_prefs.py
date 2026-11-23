@@ -44,8 +44,9 @@ def test_staff_see_the_types_their_permissions_allow(boss):
     jobs_only = make_staff('jobsonly', ['jobs.view'])
     assert keys(api_for(jobs_only).get(PREFS)) == ['job_assigned', 'visits_today']
     tools_chat = make_staff('toolschat', ['tools.view', 'tickets.chat_view'])
-    assert keys(api_for(tools_chat).get(PREFS)) == ['ticket_message', 'tool_overdue']
-    assert keys(api_for(make_staff('nothing', [])).get(PREFS)) == []
+    assert keys(api_for(tools_chat).get(PREFS)) == ['ticket_message', 'job_assigned', 'visits_today', 'tool_overdue']
+    # Every staff member can be on jobs, so the job types are always there.
+    assert keys(api_for(make_staff('nothing', [])).get(PREFS)) == ['job_assigned', 'visits_today']
 
 
 def test_sign_in_needed_and_gas_guard_has_none():

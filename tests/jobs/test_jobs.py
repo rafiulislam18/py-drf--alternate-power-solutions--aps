@@ -385,7 +385,8 @@ def test_newly_assigned_people_get_an_email(api, boss, settings, mailoutbox, dja
         api.patch(url, {'assigned_to': [lerenzo.pk, brian.pk]}, format='json')
         api.patch(url, {'task': 'Install 6 plugs'}, format='json')
     assert [m.to for m in mailoutbox[1:]] == [['brian@aps.example']]
-    assert '/dashboard/jobs/' not in mailoutbox[1].body  # Brian has no jobs.view: no link
+    # Brian has no jobs.view, but every staff member can open the jobs they're on.
+    assert f"/dashboard/jobs/{job['id']}" in mailoutbox[1].body
 
     # Taken off before the email went: nothing sent.
     from apps.jobs.emails import send_assignment_emails

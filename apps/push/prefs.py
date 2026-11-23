@@ -4,7 +4,8 @@ Who gets which APS push notification, and each person's own switches.
 Types (Account settings → Notifications shows only the ones a person can get):
 
 - ``ticket_message``: clients always; staff with ``tickets.chat_view``;
-- ``job_assigned`` and ``visits_today``: staff with ``jobs.view``;
+- ``job_assigned`` and ``visits_today``: every staff member (they can open the
+  jobs they're on, even without ``jobs.view``);
 - ``tool_overdue``: staff with ``tools.view``.
 
 "Receive admin alerts" (``NotificationPrefs.admin_alerts``) is a separate
@@ -29,7 +30,8 @@ TYPES = [
 ]
 LABELS = dict(TYPES)
 # What a staff member needs to see each type's page.
-STAFF_PERM = {TICKET_MESSAGE: 'tickets.chat_view', JOB_ASSIGNED: 'jobs.view', VISITS_TODAY: 'jobs.view',
+# None = any staff member.
+STAFF_PERM = {TICKET_MESSAGE: 'tickets.chat_view', JOB_ASSIGNED: None, VISITS_TODAY: None,
               TOOL_OVERDUE: 'tools.view'}
 
 
@@ -38,7 +40,8 @@ def can_receive(user, kind):
         return False
     if is_dashboard_client(user):
         return kind == TICKET_MESSAGE
-    return is_dashboard_admin(user) and has_perm(user, STAFF_PERM[kind])
+    perm = STAFF_PERM[kind]
+    return is_dashboard_admin(user) and (perm is None or has_perm(user, perm))
 
 
 def available_types(user):
