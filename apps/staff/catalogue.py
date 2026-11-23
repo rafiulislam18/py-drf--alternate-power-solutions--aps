@@ -4,7 +4,9 @@ Every permission a staff account can be given, grouped by dashboard section.
 A permission's code is ``<section>.<action>`` (e.g. ``tickets.chat_send``).
 Superusers have them all; other staff only what a superuser ticks on the
 Staff accounts page. "Read" permissions (``view`` / ``chat_view``) are ticked
-by default for a new staff account; everything else starts off.
+by default for a new staff account, except ``jobs.view`` ("see all jobs"):
+without it a staff member still opens Jobs but only sees the jobs assigned to
+them or created by them (apps.jobs.visibility). Everything else starts off.
 
 Adding a permission: add it here, use it in the view (see
 ``apps.staff.permissions``), and gate the matching button on the frontend.
@@ -13,7 +15,7 @@ Adding a permission: add it here, use it in the view (see
 SECTIONS = [
     {
         'key': 'jobs', 'label': 'Operations — jobs',
-        'perms': [('view', 'View jobs'), ('create', 'Create jobs'), ('edit', 'Edit jobs'),
+        'perms': [('view', 'View jobs — see all jobs'), ('create', 'Create jobs'), ('edit', 'Edit jobs'),
                   ('assign', 'Assign staff to jobs'), ('comment', 'Comment on jobs'),
                   ('delete', 'Delete jobs'), ('archive', 'Archive & unarchive jobs'),
                   ('settings', 'Change job settings (colours & categories)')],
@@ -90,7 +92,16 @@ SECTIONS = [
 LABELS = {f"{s['key']}.{action}": label for s in SECTIONS for action, label in s['perms']}
 ALL_PERMS = list(LABELS)
 READ_ACTIONS = ('view', 'chat_view')
-DEFAULT_PERMS = [code for code in ALL_PERMS if code.split('.', 1)[1] in READ_ACTIONS]
+# Extra explanation shown under a permission on the Staff accounts page.
+HINTS = {
+    'jobs.view': 'Without this, they only see jobs assigned to them or created by them.',
+}
+_READ_PERMS = [code for code in ALL_PERMS if code.split('.', 1)[1] in READ_ACTIONS]
+# Ticked for a NEW staff account ("Read only"): new staff see only their own jobs.
+DEFAULT_PERMS = [code for code in _READ_PERMS if code != 'jobs.view']
+# What an account WITHOUT a StaffAccess row has (older admin accounts). Kept as it
+# always was, jobs.view included, so nobody's access changes.
+NO_ROW_PERMS = list(_READ_PERMS)
 
 
 def clean(codes):

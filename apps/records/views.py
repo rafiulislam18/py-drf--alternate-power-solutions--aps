@@ -87,7 +87,10 @@ def _section_of(model):
 
 
 def _can_view_type(user, model):
-    return user.is_superuser or has_perm(user, f'{model.trash_section}.view')
+    # ``trash_any_staff``: every staff member may have deleted some (e.g. their own
+    # jobs without "see all jobs"); non-superusers only ever see their own deletions.
+    return (user.is_superuser or has_perm(user, f'{model.trash_section}.view')
+            or getattr(model, 'trash_any_staff', False))
 
 
 def _person(user):
@@ -324,9 +327,13 @@ class ItemHistoryView(_StaffView):
         if model is None:
             raise Http404('Unknown item type.')
         section = _section_of(model)
-        allowed = (request.user.is_superuser or has_perm(request.user, 'audit.view_all')
-                   or (section and has_perm(request.user, f'{section}.view')))
-        if not allowed:
+        everything = request.user.is_superuser or has_perm(request.user, 'audit.view_all')
+        # A type can decide per item (jobs: only the ones this person can see; 404 otherwise).
+        item_rule = getattr(model, 'history_allowed', None)
+        if item_rule is not None and not everything:
+            if not item_rule(request.user, pk):
+                raise Http404('Not found.')
+        elif not (everything or (section and has_perm(request.user, f'{section}.view'))):
             return _forbidden(denied_message(f'{section}.view' if section else 'audit.view_all'))
         match = Q(object_type=model._meta.label_lower, object_id=str(pk))
         # A type can pull in related items' entries (a tool shows the bookings it was in).

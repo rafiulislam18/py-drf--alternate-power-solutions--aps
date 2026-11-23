@@ -103,6 +103,8 @@ class Job(TrashableModel, ArchivableModel):
 
     trash_section = 'jobs'
     trash_label = 'Job'
+    # Staff without "see all jobs" can delete their own jobs, so they find them in the trash too.
+    trash_any_staff = True
     # Stamps the system moves on every change / alert — not something people edit.
     audit_exclude = {'number', 'date_added', 'last_updated', 'created_by', 'unpaid_alert_at', 'stale_alert_at',
                      'imported_from_sheet'}
@@ -127,6 +129,12 @@ class Job(TrashableModel, ArchivableModel):
         if self.payment != self.Payment.PAID:
             return f"payment changed to {self.get_payment_display() if self.payment else 'not set'}"
         return f"status changed to {self.get_status_display() if self.status else 'no status'}"
+
+    @classmethod
+    def history_allowed(cls, user, pk):
+        """Its history is for people who can see the job (trashed ones too)."""
+        from .visibility import visible_jobs
+        return visible_jobs(user, cls.all_objects.all()).filter(pk=pk).exists()
 
     def trash_preview(self, request):
         return {

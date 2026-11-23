@@ -49,7 +49,7 @@ def _stored_perms(user):
     try:
         return catalogue.clean(StaffAccess.objects.get(user=user).permissions)
     except StaffAccess.DoesNotExist:
-        return list(catalogue.DEFAULT_PERMS)
+        return list(catalogue.NO_ROW_PERMS)
 
 
 def _log_staff_change(by, user, before, password_set):
@@ -82,7 +82,9 @@ class PermissionCatalogueView(_SuperuserView):
     def get(self, request):
         return Response({
             'sections': [{'key': s['key'], 'label': s['label'],
-                          'perms': [{'code': f"{s['key']}.{a}", 'action': a, 'label': label} for a, label in s['perms']]}
+                          'perms': [{'code': f"{s['key']}.{a}", 'action': a, 'label': label,
+                                     'hint': catalogue.HINTS.get(f"{s['key']}.{a}", '')}
+                                    for a, label in s['perms']]}
                          for s in catalogue.SECTIONS],
             'default': catalogue.DEFAULT_PERMS,
         })

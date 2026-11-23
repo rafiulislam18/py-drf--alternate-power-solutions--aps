@@ -95,7 +95,7 @@ class WhatsAppMessageListView(APIView):
 
         paginator = self.pagination_class()
         page = paginator.paginate_queryset(qs, request)
-        serializer = WhatsAppMessageSerializer(page, many=True)
+        serializer = WhatsAppMessageSerializer(page, many=True, context={'request': request})
         return paginator.get_paginated_response(serializer.data)
 
 
@@ -158,7 +158,8 @@ class WhatsAppMessageMarkView(APIView):
         message.save(update_fields=['marked_as_job', 'marked_as_job_at', 'dismissed', 'dismissed_at'])
         if (message.marked_as_job, message.dismissed) != was:
             audit.log(request.user, 'marked_job' if message.marked_as_job else 'unmarked_job', message)
-        return Response(WhatsAppMessageSerializer(message).data, status=status.HTTP_200_OK)
+        return Response(WhatsAppMessageSerializer(message, context={'request': request}).data,
+                        status=status.HTTP_200_OK)
 
 
 class WhatsAppMessageBulkMarkView(APIView):
@@ -233,7 +234,8 @@ class WhatsAppMessageDismissView(APIView):
         message.save(update_fields=['dismissed', 'dismissed_at', 'marked_as_job', 'marked_as_job_at'])
         if message.dismissed != was_dismissed:
             audit.log(request.user, 'dismissed' if dismiss else 'undismissed', message)
-        return Response(WhatsAppMessageSerializer(message).data, status=status.HTTP_200_OK)
+        return Response(WhatsAppMessageSerializer(message, context={'request': request}).data,
+                        status=status.HTTP_200_OK)
 
 
 class WhatsAppMessageBulkDismissView(APIView):

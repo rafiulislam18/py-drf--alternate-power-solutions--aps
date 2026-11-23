@@ -172,10 +172,10 @@ class ToolListView(_ToolsView):
         save_with_next_number(tool)
         audit.log_create(request.user, tool)
         logger.info(f'{request.user.username} added tool {tool.tool_id}')
-        return Response(tool_detail(tool), status=status.HTTP_201_CREATED)
+        return Response(tool_detail(tool, request.user), status=status.HTTP_201_CREATED)
 
 
-def tool_detail(tool):
+def tool_detail(tool, user):
     tool = Tool.all_objects.select_related('type', 'created_by').get(pk=tool.pk)
     out = units_out([tool.pk]).get(tool.pk, 0)
     settings = ToolSettings.load()
@@ -184,7 +184,7 @@ def tool_detail(tool):
         **tool_row(tool, out, _holders([tool.pk]).get(tool.pk, [])),
         'created_by': person(tool.created_by),
         'created_at': tool.created_at,
-        'bookings': [booking_row(b, settings) for b in bookings],
+        'bookings': [booking_row(b, settings, user=user) for b in bookings],
     }
 
 
@@ -192,7 +192,7 @@ class ToolDetailView(_ToolsView):
     dashboard_perms = {'GET': 'tools.view', 'PATCH': 'tools.edit', 'DELETE': 'tools.delete'}
 
     def get(self, request, pk):
-        return Response(tool_detail(get_object_or_404(Tool, pk=pk)))
+        return Response(tool_detail(get_object_or_404(Tool, pk=pk), request.user))
 
     @transaction.atomic
     def patch(self, request, pk):
@@ -203,7 +203,7 @@ class ToolDetailView(_ToolsView):
         before = audit.snapshot(tool)
         serializer.save()
         audit.log_update(request.user, tool, before)
-        return Response(tool_detail(tool))
+        return Response(tool_detail(tool, request.user))
 
     @transaction.atomic
     def delete(self, request, pk):
@@ -289,14 +289,15 @@ class BookingListView(_ToolsView):
         total = qs.count()
         pages = max(1, -(-total // PAGE_SIZE))
         page = min(max(1, _int(p.get('page')) or 1), pages)
-        rows = [booking_row(b, settings, today) for b in qs[(page - 1) * PAGE_SIZE: page * PAGE_SIZE]]
+        page_rows = qs[(page - 1) * PAGE_SIZE: page * PAGE_SIZE]
+        rows = [booking_row(b, settings, today, request.user) for b in page_rows]
         return Response({'results': rows, 'count': total, 'page': page, 'total_pages': pages,
                          'summary': summary(settings, today),
                          'total': Booking.objects.filter(archived_at__isnull=True).count(),
                          'archived_count': archive.archived_count(Booking.objects.all())})
 
     def post(self, request):
-        serializer = BookOutSerializer(data=request.data)
+        serializer = BookOutSerializer(data=request.data, context={'request': request})
         serializer.is_valid(raise_exception=True)
         d = serializer.validated_data
         try:
@@ -309,7 +310,7 @@ class BookingListView(_ToolsView):
             return Response({'detail': f'Already out with someone else: {names}. Book it only if it was handed over.',
                              'code': 'handover', 'conflicts': exc.conflicts}, status=status.HTTP_409_CONFLICT)
         logger.info(f'{request.user.username} booked out {booking.booking_id}')
-        data = booking_detail(_bookings().get(pk=booking.pk), ToolSettings.load())
+        data = booking_detail(_bookings().get(pk=booking.pk), ToolSettings.load(), request.user)
         return Response({**data, 'handover_events': events}, status=status.HTTP_201_CREATED)
 
 
@@ -317,19 +318,19 @@ class BookingDetailView(_ToolsView):
     dashboard_perms = {'GET': 'tools.view', 'PATCH': 'tools.book', 'DELETE': 'tools.book'}
 
     def get(self, request, pk):
-        return Response(booking_detail(get_object_or_404(_bookings(), pk=pk), ToolSettings.load()))
+        return Response(booking_detail(get_object_or_404(_bookings(), pk=pk), ToolSettings.load(), request.user))
 
     @transaction.atomic
     def patch(self, request, pk):
         booking = get_object_or_404(Booking.objects.select_for_update(), pk=pk)
-        serializer = BookingUpdateSerializer(booking, data=request.data, partial=True)
+        serializer = BookingUpdateSerializer(booking, data=request.data, partial=True, context={'request': request})
         serializer.is_valid(raise_exception=True)
         before = audit.snapshot(booking)
         for field, value in serializer.validated_data.items():
             setattr(booking, field, value)
         booking.save()
         audit.log_update(request.user, booking, before)
-        return Response(booking_detail(_bookings().get(pk=booking.pk), ToolSettings.load()))
+        return Response(booking_detail(_bookings().get(pk=booking.pk), ToolSettings.load(), request.user))
 
     @transaction.atomic
     def delete(self, request, pk):
@@ -360,7 +361,7 @@ class BookingReturnView(_ToolsView):
                                 status=status.HTTP_400_BAD_REQUEST)
             lines.append({**line, 'item': item})
         _, event = return_items(request.user, booking, lines, date=d['date'], notify=d['notify'])
-        data = booking_detail(_bookings().get(pk=booking.pk), ToolSettings.load())
+        data = booking_detail(_bookings().get(pk=booking.pk), ToolSettings.load(), request.user)
         return Response({**data, 'archive_event': event})
 
 
@@ -388,7 +389,7 @@ class BookingResolveView(_ToolsView):
         booking = get_object_or_404(_bookings().select_for_update(of=('self',)), pk=pk)
         note = request.data.get('note') if isinstance(request.data, dict) else ''
         resolve_problem(request.user, booking, str(note or ''))
-        return Response(booking_detail(_bookings().get(pk=booking.pk), ToolSettings.load()))
+        return Response(booking_detail(_bookings().get(pk=booking.pk), ToolSettings.load(), request.user))
 
 
 class BookingArchiveView(archive.ArchiveView):
@@ -437,7 +438,7 @@ class WhoHasWhatView(_ToolsView):
             group['long_term_kit'] |= booking.long_term_kit
             group['waiting'] |= bool(state['waiting'])
             group['level'] = max(group['level'], state['level'])
-            row = booking_row(booking, settings, today)
+            row = booking_row(booking, settings, today, request.user)
             for item in state['open']:
                 group['items'].append({
                     'item': item.pk, 'tool': row['items'][[i['id'] for i in row['items']].index(item.pk)]['tool'],

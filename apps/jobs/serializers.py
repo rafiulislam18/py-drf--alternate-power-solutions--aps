@@ -6,6 +6,7 @@ from apps.records.archive import archive_data
 from apps.solar_dashboard.models import Site
 
 from .models import Job, JobCategory, JobSettings, staff_name
+from .visibility import can_comment
 
 
 def staff_queryset():
@@ -100,6 +101,8 @@ def job_detail(job, thresholds, user):
         'completion_date': job.completion_date,
         'created_by': staff_name(job.created_by) if job.created_by_id else '',
         'comments': [comment_data(c, user) for c in job.comments.all()],
+        # "Comment on jobs", or assigned to / created the job.
+        'can_comment': can_comment(user, job),
     }
 
 

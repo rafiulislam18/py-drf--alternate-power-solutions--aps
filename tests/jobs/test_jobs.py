@@ -235,7 +235,11 @@ def test_each_action_needs_its_permission(boss):
     assert assigner.patch(url, {'assigned_to': [editor_user.pk]}, format='json').status_code == 200
     assert assigner.patch(url, {'assigned_to': [], 'task': 'Q'}, format='json').status_code == 403
 
-    for outsider in (api_for(make_staff('nobody', perms=[])), api_for(make_client('acme')), api_for()):
+    # Every staff member can open Jobs; without jobs.view they only see their own (none here).
+    nobody = api_for(make_staff('nobody', perms=[]))
+    assert nobody.get(JOBS).status_code == 200 and nobody.get(JOBS).data['count'] == 0
+    assert nobody.get(url).status_code == 404
+    for outsider in (api_for(make_client('acme')), api_for()):
         assert outsider.get(JOBS).status_code in (401, 403)
 
 

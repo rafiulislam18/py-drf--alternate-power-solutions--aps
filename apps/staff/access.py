@@ -17,7 +17,7 @@ def permissions_for(user):
         try:
             cached = catalogue.clean(user.staff_access.permissions)
         except StaffAccess.DoesNotExist:
-            cached = list(catalogue.DEFAULT_PERMS)
+            cached = list(catalogue.NO_ROW_PERMS)
         user._dashboard_perms = cached  # once per request (the user object lives one request)
     return cached
 

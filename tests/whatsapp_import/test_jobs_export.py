@@ -147,7 +147,7 @@ class TestEndpoint:
         res = admin_api_client.post('/whatsapp/jobs-export/')
         assert res.status_code == 200 and res.data['exported'] == 1 and res.data['job_ids'] == ['APS-001']
         listed = admin_api_client.get('/whatsapp/messages/', {'status': 'marked'}).data['results'][0]
-        assert listed['job'] == {'id': Job.objects.get().pk, 'job_id': 'APS-001'}
+        assert listed['job'] == {'id': Job.objects.get().pk, 'job_id': 'APS-001', 'can_open': True}
         assert AuditLog.objects.filter(action='exported', summary='1 job(s): APS-001').exists()
 
     def test_forbidden_for_client(self, api_client, user_factory):

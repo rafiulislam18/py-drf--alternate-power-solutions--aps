@@ -164,7 +164,8 @@ def test_trash_needs_the_permissions(boss):
     client = make_client('acme')
 
     assert api_for(no_trash).get(TRASH).status_code == 403
-    assert api_for(no_section).get(TRASH).data['types'] == []
+    # Only jobs (any staff member may have deleted their own; they only see their own deletions).
+    assert api_for(no_section).get(TRASH).data['types'] == [{'key': 'jobs.job', 'label': 'Job'}]
     assert api_for(client).get(TRASH).status_code == 403
     assert api_for().get(TRASH).status_code == 401
 

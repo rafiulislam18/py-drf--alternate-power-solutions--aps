@@ -61,7 +61,13 @@ def test_only_superusers_manage_staff(boss_api, client_and_site):
                     'trash', 'audit']
     tickets = next(s for s in res.data['sections'] if s['key'] == 'tickets')
     assert [p['action'] for p in tickets['perms']] == ['view', 'create', 'edit', 'assign', 'archive', 'chat_view', 'chat_send']
-    assert set(res.data['default']) == {c for c in catalogue.ALL_PERMS if c.endswith(('.view', '.chat_view'))}
+    # New accounts get the read permissions except "see all jobs" (they see their own jobs).
+    assert set(res.data['default']) == {c for c in catalogue.ALL_PERMS
+                                        if c.endswith(('.view', '.chat_view')) and c != 'jobs.view'}
+    jobs = next(s for s in res.data['sections'] if s['key'] == 'jobs')
+    view = next(p for p in jobs['perms'] if p['action'] == 'view')
+    assert view['label'] == 'View jobs — see all jobs'
+    assert view['hint'] == 'Without this, they only see jobs assigned to them or created by them.'
 
 
 def test_create_staff_starts_with_read_permissions_and_can_sign_in(boss_api):

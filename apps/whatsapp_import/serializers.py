@@ -1,11 +1,14 @@
 from rest_framework import serializers
 
+from apps.jobs.visibility import can_see_job
+
 from .models import WhatsAppMessage
 
 
 class WhatsAppMessageSerializer(serializers.ModelSerializer):
     """Read view of a message for the review page. ``job`` is the dashboard job it
-    became ({id, job_id}), or null (not yet, or sent to the old sheet)."""
+    became ({id, job_id, can_open}), or null (not yet, or sent to the old sheet).
+    ``can_open`` is false for a job the viewer can't see: the number shows, no link."""
 
     job = serializers.SerializerMethodField()
 
@@ -21,7 +24,11 @@ class WhatsAppMessageSerializer(serializers.ModelSerializer):
 
     def get_job(self, message):
         job = message.job
-        return {'id': job.pk, 'job_id': job.job_id} if job and not job.in_trash else None
+        if not job or job.in_trash:
+            return None
+        request = self.context.get('request')
+        return {'id': job.pk, 'job_id': job.job_id,
+                'can_open': request is not None and can_see_job(request.user, job)}
 
 
 class MarkJobSerializer(serializers.Serializer):

@@ -2,6 +2,12 @@
 Operations jobs API (mounted at ``/jobs/``) — staff only, per permission
 (``apps.staff.catalogue`` section ``jobs``).
 
+Every staff member can open Jobs. With ``jobs.view`` ("see all jobs") they see
+every job; without it only the jobs assigned to them or created by them
+(``visibility.visible_jobs``). Everything below - list, search, counts, tiles,
+detail, edits, archive, comments - works on what the person can see; a job
+they can't see is a 404, like one that doesn't exist.
+
     GET    /jobs/                  list: ?status &category &payment &assigned=<id>|me|none
                                    &attention=1 &awaiting_payment=1 &unassigned=1 &visit=today
                                    &q &ordering=default|stale|unpaid|newest|number &page
@@ -53,6 +59,7 @@ from apps.push.jobs import queue_job_assigned_push
 from .emails import queue_assignment_emails
 from .models import Job, JobCategory, JobComment, JobSettings, format_job_id, staff_name
 from .services import next_number, save_with_next_number, visiting_today
+from .visibility import can_comment, sees_all_jobs, visible_jobs
 from .serializers import (
     CommentSerializer, JobCategorySerializer, JobSettingsSerializer, JobWriteSerializer, client_label, client_queryset, comment_data,
     job_detail, job_row, staff_queryset,
@@ -88,8 +95,8 @@ def _int(value):
         return None
 
 
-def _jobs():
-    return Job.objects.select_related(
+def _jobs(user):
+    return visible_jobs(user).select_related(
         'category', 'client__client_profile', 'site', 'created_by', 'archived_by',
     ).prefetch_related(
         Prefetch('assigned_to', queryset=staff_queryset().order_by('first_name', 'username')),
@@ -108,7 +115,7 @@ def needs_attention(thresholds):
     return Q(status__in=Job.LIVE, last_updated__lt=watch_cutoff(thresholds))
 
 
-def jobs_summary(thresholds, archived=False):
+def jobs_summary(thresholds, archived=False, user=None):
     """The summary tiles: counts over every active job (not in the trash) -
     or every archived one in the archive view - whatever the list is filtered
     by. Each matches its list filter. "Today" is the local date (TIME_ZONE,
@@ -116,7 +123,8 @@ def jobs_summary(thresholds, archived=False):
     assignees."""
     def n(q):
         return Count('id', filter=q, distinct=True)
-    return Job.objects.filter(archived_at__isnull=not archived).aggregate(
+    base = visible_jobs(user) if user is not None else Job.objects.all()
+    return base.filter(archived_at__isnull=not archived).aggregate(
         attention=n(needs_attention(thresholds)),
         awaiting_payment=n(UNPAID),
         visits_today=n(visiting_today()),
@@ -153,11 +161,11 @@ class JobListView(_JobView):
     def dashboard_perm(self, request):
         if request.method == 'POST':
             return ['jobs.create', 'jobs.assign'] if request.data.get('assigned_to') else 'jobs.create'
-        return 'jobs.view'
+        return None  # any staff member: they see what visible_jobs allows
 
     def get(self, request):
         p = request.query_params
-        qs = archive.filter_archived(_jobs(), p)
+        qs = archive.filter_archived(_jobs(request.user), p)
         if _int(p.get('category')) is not None:
             qs = qs.filter(category_id=_int(p['category']))
         if p.get('payment') in Job.Payment.values:
@@ -208,8 +216,9 @@ class JobListView(_JobView):
         today = timezone.localdate()
         rows = [job_row(j, thresholds, today) for j in qs[(page - 1) * PAGE_SIZE: page * PAGE_SIZE]]
         return Response({'results': rows, 'count': total, 'page': page, 'total_pages': pages, 'counts': counts,
-                         'summary': jobs_summary(thresholds, archive.archive_view(p) == 'archived'),
-                         'archived_count': archive.archived_count(Job.objects.all())})
+                         'summary': jobs_summary(thresholds, archive.archive_view(p) == 'archived', request.user),
+                         'archived_count': archive.archived_count(visible_jobs(request.user)),
+                         'sees_all': sees_all_jobs(request.user)})
 
     def post(self, request):
         serializer = JobWriteSerializer(data=request.data)
@@ -232,14 +241,14 @@ class JobListView(_JobView):
                 audit.log(request.user, 'commented', job, summary=c.body)
             event = archive.apply_auto_archive(job, False, request.user)
         logger.info(f'{request.user.username} created {job.job_id}')
-        data = job_detail(_jobs().get(pk=job.pk), JobSettings.load(), request.user)
+        data = job_detail(_jobs(request.user).get(pk=job.pk), JobSettings.load(), request.user)
         return Response({**data, 'archive_event': event}, status=status.HTTP_201_CREATED)
 
 
 class JobDetailView(_JobView):
     def dashboard_perm(self, request):
         if request.method == 'GET':
-            return 'jobs.view'
+            return None  # any staff member, for a job they can see
         if request.method == 'DELETE':
             return 'jobs.delete'
         if request.method == 'PATCH':
@@ -251,12 +260,12 @@ class JobDetailView(_JobView):
         return None  # plain "method not allowed"
 
     def get(self, request, pk):
-        job = get_object_or_404(_jobs(), pk=pk)
+        job = get_object_or_404(_jobs(request.user), pk=pk)
         return Response(job_detail(job, JobSettings.load(), request.user))
 
     @transaction.atomic
     def patch(self, request, pk):
-        job = get_object_or_404(Job.objects.select_for_update(), pk=pk)
+        job = get_object_or_404(visible_jobs(request.user, Job.objects.select_for_update()), pk=pk)
         serializer = JobWriteSerializer(job, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         data = dict(serializer.validated_data)
@@ -285,11 +294,15 @@ class JobDetailView(_JobView):
             job.save()
             AuditLog.record(request.user, AuditLog.UPDATED, job, changes=changes)
             event = archive.apply_auto_archive(job, met_before, request.user)
-        data = job_detail(_jobs().get(pk=job.pk), JobSettings.load(), request.user)
+        visible = _jobs(request.user).filter(pk=job.pk).first()
+        if visible is None:
+            # They took themselves off a job they didn't create: saved, but no longer theirs to see.
+            return Response({'id': job.pk, 'job_id': job.job_id, 'no_longer_visible': True, 'archive_event': event})
+        data = job_detail(visible, JobSettings.load(), request.user)
         return Response({**data, 'archive_event': event})
 
     def delete(self, request, pk):
-        job = get_object_or_404(Job, pk=pk)
+        job = get_object_or_404(visible_jobs(request.user), pk=pk)
         job.trash(request.user)
         logger.info(f'{request.user.username} moved {job.job_id} to the trash')
         return Response(status=status.HTTP_204_NO_CONTENT)
@@ -299,7 +312,7 @@ class JobArchiveView(archive.ArchiveView):
     section = 'jobs'
 
     def get_item(self, pk):
-        return get_object_or_404(Job.objects.select_for_update(), pk=pk)
+        return get_object_or_404(visible_jobs(self.request.user, Job.objects.select_for_update()), pk=pk)
 
 
 class JobUnarchiveView(JobArchiveView):
@@ -310,15 +323,24 @@ class JobBulkArchiveView(archive.BulkArchiveView):
     section = 'jobs'
 
     def find(self, ids):
-        return Job.objects.select_for_update().in_bulk(ids)
+        # Jobs they can't see come back as "skipped", like ones that don't exist.
+        return visible_jobs(self.request.user, Job.objects.select_for_update()).in_bulk(ids)
+
+
+def _no_comment():
+    return Response({'detail': "You can't comment on this job. Ask a superuser for \u201cComment on jobs\u201d."},
+                    status=status.HTTP_403_FORBIDDEN)
 
 
 class JobCommentsView(_JobView):
-    dashboard_perms = {'POST': 'jobs.comment'}
+    # Any staff member: "Comment on jobs", or anyone assigned to / who created the job.
+    dashboard_perms = {'POST': None}
 
     @transaction.atomic
     def post(self, request, pk):
-        job = get_object_or_404(Job.objects.select_for_update(), pk=pk)
+        job = get_object_or_404(visible_jobs(request.user, Job.objects.select_for_update()), pk=pk)
+        if not can_comment(request.user, job):
+            return _no_comment()
         serializer = CommentSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         now = timezone.now()
@@ -331,11 +353,13 @@ class JobCommentsView(_JobView):
 
 
 class JobCommentDetailView(_JobView):
-    dashboard_perms = {'PATCH': 'jobs.comment'}
+    dashboard_perms = {'PATCH': None}  # same rule as adding one (checked below)
 
     @transaction.atomic
     def patch(self, request, pk, comment_pk):
-        job = get_object_or_404(Job.objects.select_for_update(), pk=pk)
+        job = get_object_or_404(visible_jobs(request.user, Job.objects.select_for_update()), pk=pk)
+        if not can_comment(request.user, job):
+            return _no_comment()
         comment = get_object_or_404(JobComment, pk=comment_pk, job=job)
         if comment.author_id != request.user.pk:
             return Response({'detail': 'You can only edit your own comments.'}, status=status.HTTP_403_FORBIDDEN)
@@ -356,7 +380,7 @@ class JobCommentDetailView(_JobView):
 class JobOptionsView(_JobView):
     """Everything the job form and filters need, in one call."""
 
-    dashboard_perms = {'GET': 'jobs.view'}
+    dashboard_perms = {'GET': None}  # any staff member (no job details here)
 
     def get(self, request):
         clients = client_queryset().select_related('client_profile')
@@ -378,7 +402,7 @@ class JobOptionsView(_JobView):
 
 
 class JobSettingsView(_JobView):
-    dashboard_perms = {'GET': 'jobs.view', 'PATCH': 'jobs.settings'}
+    dashboard_perms = {'GET': None, 'PATCH': 'jobs.settings'}
 
     def get(self, request):
         return Response(JobSettingsSerializer(JobSettings.load()).data)

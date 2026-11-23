@@ -6,6 +6,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
 from apps.jobs.models import Job
+from apps.jobs.visibility import can_see_job
 from apps.records.archive import archive_data
 
 from .models import Booking, BookingItem, Movement, Tool, ToolSettings, ToolType, person_name
@@ -162,7 +163,14 @@ def check_info(state):
             'by': person(last.checked_by), 'at': last.checked_at, 'note': last.check_note}
 
 
-def booking_row(booking, settings, today=None):
+def job_ref(job, user=None):
+    """The booking's job: its number always, a link only for someone who can see that job."""
+    if job is None:
+        return None
+    return {'id': job.pk, 'job_id': job.job_id, 'can_open': user is not None and can_see_job(user, job)}
+
+
+def booking_row(booking, settings, today=None, user=None):
     state = booking_state(booking, settings, today)
     items = list(booking.items.all())
     return {
@@ -172,7 +180,7 @@ def booking_row(booking, settings, today=None):
         'date_out': booking.date_out,
         'due_date': booking.due_date,
         'long_term_kit': booking.long_term_kit,
-        'job': {'id': booking.job_id, 'job_id': booking.job.job_id} if booking.job_id else None,
+        'job': job_ref(booking.job if booking.job_id else None, user),
         'notes': booking.notes,
         'items': [item_data(i) for i in items],
         'units': sum(i.quantity for i in items),
@@ -207,10 +215,10 @@ def problem_data(booking):
     }
 
 
-def booking_detail(booking, settings):
+def booking_detail(booking, settings, user=None):
     items = list(booking.items.all())
     return {
-        **booking_row(booking, settings),
+        **booking_row(booking, settings, user=user),
         'notify': booking.notify,
         'created_by': person(booking.created_by),
         'created_at': booking.created_at,
@@ -219,8 +227,9 @@ def booking_detail(booking, settings):
     }
 
 
-def parse_job(value):
-    """'APS-123', 'aps 123' or '123' → the job; '' → None."""
+def parse_job(value, user=None, keep=None):
+    """'APS-123', 'aps 123' or '123' → the job; '' → None. With ``user``, only a job
+    they can see (``keep``: the booking's current job stays even if they can't)."""
     text = ' '.join(str(value or '').split())
     if not text:
         return None
@@ -228,9 +237,16 @@ def parse_job(value):
     if not m:
         raise serializers.ValidationError('Enter a job number like APS-123.')
     job = Job.objects.filter(number=int(m.group(1))).first()
+    if job is not None and user is not None and job != keep and not can_see_job(user, job):
+        job = None  # same answer as a job that doesn't exist
     if job is None:
         raise serializers.ValidationError(f'There’s no job APS-{int(m.group(1)):03d}.')
     return job
+
+
+def _request_user(serializer):
+    request = serializer.context.get('request')
+    return request.user if request is not None else None
 
 
 class _ItemLine(serializers.Serializer):
@@ -258,7 +274,7 @@ class BookOutSerializer(serializers.Serializer):
         self.fields['technician'].queryset = staff_queryset()
 
     def validate_job(self, value):
-        return parse_job(value)
+        return parse_job(value, _request_user(self))
 
     def validate_notes(self, value):
         return value.strip()
@@ -271,7 +287,7 @@ class BookingUpdateSerializer(serializers.Serializer):
     notes = serializers.CharField(required=False, allow_blank=True, max_length=2000)
 
     def validate_job(self, value):
-        return parse_job(value)
+        return parse_job(value, _request_user(self), keep=self.instance.job if self.instance else None)
 
     def validate_notes(self, value):
         return value.strip()

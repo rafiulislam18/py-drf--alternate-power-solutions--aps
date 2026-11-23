@@ -116,7 +116,7 @@ def test_a_job_can_be_linked_by_its_number(api, lucky):
     job = api.post('/jobs/', {'client_name': 'Acme', 'category': JobCategory.objects.first().pk}, format='json').data
     drill = add_tool(api)
     res = book(api, lucky, [drill['id']], job='aps-1')
-    assert res['job'] == {'id': job['id'], 'job_id': 'APS-001'}
+    assert res['job'] == {'id': job['id'], 'job_id': 'APS-001', 'can_open': True}
     res = book(api, lucky, [add_tool(api)['id']], job='APS-99', expect=400)
     assert 'job' in res
 
