@@ -29,14 +29,6 @@ Cancelling (here, or a CANCELLED ITN) stops PayFast billing at once but keeps
 the plan active until the month already paid for ends (lifecycle.py); the
 hourly ``end_due_subscriptions`` task switches it off then.
 
-Re-subscribing a cancelled plan that's still running: a normal checkout for a
-NEW PayFast subscription with ``amount=0.00`` (PayFast only stores the card)
-and ``billing_date`` = the old plan's end date, so the first charge lands the
-day the paid period ends: no double charge, no gap. Its ITNs use the
-"resub-" / "reswap-" prefixes. The R0 sign-up ITN switches the site onto the
-new token and clears the end date; it doesn't count as a paid month. Later
-charges on that subscription are ordinary monthly payments.
-
 Signature + IP verification follow the APS / Lumo reference implementations.
 """
 
@@ -79,9 +71,6 @@ SWAP_ADDON_AMOUNT = '199.00'
 # m_payment_id prefixes, so one ITN endpoint can route both plans.
 MONITORING_PREFIX = 'sub-'
 SWAP_PREFIX = 'swap-'
-# Re-subscribing a cancelled plan before it ends (first charge on its end date).
-RESUB_PREFIX = 'resub-'
-RESWAP_PREFIX = 'reswap-'
 
 
 def _day(dt):
@@ -100,13 +89,7 @@ def _parse_m_payment_id(m_payment_id):
     """
     if not m_payment_id:
         return None, None
-    if m_payment_id.startswith(RESWAP_PREFIX):
-        raw = m_payment_id[len(RESWAP_PREFIX):]
-        plan = Payment.Plan.CYLINDER_SWAP
-    elif m_payment_id.startswith(RESUB_PREFIX):
-        raw = m_payment_id[len(RESUB_PREFIX):]
-        plan = Payment.Plan.MONITORING
-    elif m_payment_id.startswith(SWAP_PREFIX):
+    if m_payment_id.startswith(SWAP_PREFIX):
         raw = m_payment_id[len(SWAP_PREFIX):]
         plan = Payment.Plan.CYLINDER_SWAP
     elif m_payment_id.startswith(MONITORING_PREFIX):
@@ -150,17 +133,12 @@ def generate_signature(data, passphrase=''):
     return hashlib.md5(payload.encode()).hexdigest()
 
 
-def _build_payfast_data(user, m_payment_id, amount, item_name, item_description,
-                        recurring_amount=None, billing_date=None):
+def _build_payfast_data(user, m_payment_id, amount, item_name, item_description):
     """
     Assemble the signed PayFast form for a monthly recurring checkout.
 
     Shared by both plans — only the id, amount and item copy differ. Returns
     the fully-signed ``data`` dict ready to hand to the frontend.
-
-    Re-subscribing passes ``amount='0.00'`` (nothing charged now, PayFast only
-    stores the card), the monthly ``recurring_amount`` and ``billing_date``
-    (YYYY-MM-DD), the date of the first charge.
     """
     data = {
         # Merchant.
@@ -179,8 +157,7 @@ def _build_payfast_data(user, m_payment_id, amount, item_name, item_description,
         'confirmation_address': user.email,
         # Recurring billing — monthly, indefinite.
         'subscription_type': '1',
-        'billing_date': billing_date.isoformat() if billing_date else None,
-        'recurring_amount': recurring_amount or amount,
+        'recurring_amount': amount,
         'frequency': '3',   # 3 = monthly
         'cycles': '0',      # 0 = indefinite
         # Return URLs.
@@ -514,89 +491,6 @@ class CreateSwapAddonCheckoutSession(APIView):
             return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
-class ResubscribeCheckoutSession(APIView):
-    """
-    POST: re-subscribe ONE site's cancelled monitoring before it ends.
-
-    Body: ``{"deviceId": <id>}``. Only while that site's monitoring is cancelled
-    but still active (``ends_at`` in the future). A new PayFast subscription:
-    R0 today, first R99 charge on the end date, then monthly.
-    """
-
-    authentication_classes = [GasGuardJWTAuthentication]
-
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request):
-        user = request.user
-        device, error = _get_owned_device(user, request.data.get('deviceId'))
-        if error:
-            return error
-        site_label = device.name or device.device_id or f'Site {device.id}'
-        subscription = Subscription.objects.filter(user=user, device=device).first()
-        if subscription is None or not subscription.is_active or not subscription.ends_at:
-            return Response({'detail': f'{site_label} has no cancelled subscription to re-subscribe.'},
-                            status=status.HTTP_400_BAD_REQUEST)
-        if subscription.ends_at <= timezone.now():
-            return Response({'detail': f'The subscription for {site_label} has ended. Subscribe again instead.'},
-                            status=status.HTTP_400_BAD_REQUEST)
-        data = _build_payfast_data(
-            user,
-            m_payment_id=f'{RESUB_PREFIX}{subscription.id}',
-            amount='0.00',
-            recurring_amount=SUBSCRIPTION_AMOUNT,
-            billing_date=timezone.localdate(subscription.ends_at),
-            item_name=f'Gas Guard — {site_label}'[:100],
-            item_description=f'Gas Guard monthly monitoring for {site_label} '
-                             f'(first charge {_day(subscription.ends_at)})'[:255],
-        )
-        return Response({'url': settings.PAYFAST_GAS_GUARD_PAYMENT_URL, 'data': data, 'method': 'POST',
-                         'firstCharge': timezone.localdate(subscription.ends_at).isoformat()})
-
-
-class ResubscribeSwapAddonCheckoutSession(APIView):
-    """
-    POST: re-subscribe ONE site's cancelled cylinder-swap add-on before it ends.
-
-    Body: ``{"deviceId": <id>}``. Needs the site's monitoring to be continuing
-    (re-subscribe that first). R0 today, first R199 charge on the add-on's end
-    date, then monthly.
-    """
-
-    authentication_classes = [GasGuardJWTAuthentication]
-
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request):
-        user = request.user
-        device, error = _get_owned_device(user, request.data.get('deviceId'))
-        if error:
-            return error
-        site_label = device.name or device.device_id or f'Site {device.id}'
-        subscription = Subscription.objects.filter(user=user, device=device).first()
-        if subscription is None or not subscription.swap_addon_active or not subscription.swap_addon_ends_at:
-            return Response({'detail': f'{site_label} has no cancelled add-on to re-subscribe.'},
-                            status=status.HTTP_400_BAD_REQUEST)
-        if not subscription.is_active or subscription.ends_at:
-            return Response({'detail': f'Re-subscribe the monitoring for {site_label} first.'},
-                            status=status.HTTP_400_BAD_REQUEST)
-        if subscription.swap_addon_ends_at <= timezone.now():
-            return Response({'detail': f'The add-on for {site_label} has ended. Add it again instead.'},
-                            status=status.HTTP_400_BAD_REQUEST)
-        data = _build_payfast_data(
-            user,
-            m_payment_id=f'{RESWAP_PREFIX}{subscription.id}',
-            amount='0.00',
-            recurring_amount=SWAP_ADDON_AMOUNT,
-            billing_date=timezone.localdate(subscription.swap_addon_ends_at),
-            item_name=f'Gas Guard Cylinder Swap — {site_label}'[:100],
-            item_description=f'Monthly cylinder-swap service for {site_label} '
-                             f'(first charge {_day(subscription.swap_addon_ends_at)})'[:255],
-        )
-        return Response({'url': settings.PAYFAST_GAS_GUARD_PAYMENT_URL, 'data': data, 'method': 'POST',
-                         'firstCharge': timezone.localdate(subscription.swap_addon_ends_at).isoformat()})
-
-
 @method_decorator(csrf_exempt, name='dispatch')
 class CancelSubscriptionView(APIView):
     """
@@ -731,14 +625,12 @@ def payfast_notify(request):
             logger.error(f'Unparseable m_payment_id in ITN: {m_payment_id!r}')
             return HttpResponse(status=400)
 
-        # Per-plan expected amount; a re-subscribe also sends a R0 sign-up.
+        # Per-plan expected amount.
         expected_amount = (
             SWAP_ADDON_AMOUNT if plan == Payment.Plan.CYLINDER_SWAP
             else SUBSCRIPTION_AMOUNT
         )
-        resub = m_payment_id.startswith((RESUB_PREFIX, RESWAP_PREFIX))
-        zero_signup = resub and _to_decimal(post_data.get('amount_gross')) == Decimal('0')
-        if post_data.get('amount_gross') != expected_amount and not zero_signup:
+        if post_data.get('amount_gross') != expected_amount:
             logger.error(
                 f'Amount mismatch for {plan}: expected {expected_amount}, '
                 f"got {post_data.get('amount_gross')}"
@@ -754,12 +646,9 @@ def payfast_notify(request):
         payment_status = post_data.get('payment_status')
 
         if payment_status == 'COMPLETE':
-            if zero_signup:
-                _handle_resubscribed(plan, subscription, post_data)
-            else:
-                _handle_complete_payment(plan, subscription, post_data)
+            _handle_complete_payment(plan, subscription, post_data)
         elif payment_status == 'CANCELLED':
-            _handle_cancelled_payment(plan, subscription, post_data)
+            _handle_cancelled_payment(plan, subscription)
         elif payment_status == 'FAILED':
             logger.warning(f'Payment FAILED for {plan} on subscription {subscription_id}')
 
@@ -823,61 +712,12 @@ def _handle_complete_payment(plan, subscription, post_data):
     _email_admin_new_payment(subscription, plan, post_data.get('amount_gross'))
 
 
-@transaction.atomic
-def _handle_resubscribed(plan, subscription, post_data):
-    """
-    The R0 sign-up ITN of a re-subscribe: the new PayFast subscription exists
-    (first charge on the old plan's end date), so the site switches to its token
-    and keeps going instead of ending. Not a paid month: last payment date and
-    months paid don't move. Recorded as a R0 Payment for the history.
-    """
-    pf_payment_id = post_data.get('pf_payment_id')
-    if pf_payment_id and Payment.objects.filter(pf_payment_id=pf_payment_id).exists():
-        logger.info(f'Duplicate re-subscribe ITN for pf_payment_id={pf_payment_id} — ignored')
-        return
-    Payment.objects.create(
-        user=subscription.user,
-        subscription=subscription,
-        plan=plan,
-        amount_gross=Decimal('0'),
-        amount_fee=_to_decimal(post_data.get('amount_fee')),
-        amount_net=_to_decimal(post_data.get('amount_net')),
-        pf_payment_id=pf_payment_id or '',
-        m_payment_id=post_data.get('m_payment_id', ''),
-        payfast_token=post_data.get('token'),
-        payment_status='COMPLETE',
-        item_name=post_data.get('item_name', ''),
-        raw_payload=post_data,
-    )
-    if plan == Payment.Plan.CYLINDER_SWAP:
-        subscription.swap_addon_token = post_data.get('token')
-        subscription.swap_addon_active = True
-        subscription.swap_addon_ends_at = None
-        subscription.save()
-        logger.info(f'Cylinder-swap add-on re-subscribed for subscription {subscription.id}')
-    else:
-        subscription.payfast_token = post_data.get('token')
-        subscription.is_active = True  # also if it ended while the sign-up was on its way
-        subscription.ends_at = None
-        subscription.save()
-        subscription.sync_user_tier()
-        logger.info(f'Monitoring re-subscribed for subscription {subscription.id}')
-
-
-def _handle_cancelled_payment(plan, subscription, post_data=None):
+def _handle_cancelled_payment(plan, subscription):
     """
     Apply a CANCELLED ITN (cancelled at PayFast, or by PayFast after failed
     payments): the plan stays active until its paid month ends, or ends now if
     that's already over (lifecycle.py).
-
-    After a re-subscribe the site runs on a new PayFast subscription, so a
-    CANCELLED ITN for the OLD one (a different token) is ignored.
     """
-    token = (post_data or {}).get('token')
-    current = subscription.swap_addon_token if plan == Payment.Plan.CYLINDER_SWAP else subscription.payfast_token
-    if token and current and token != current:
-        logger.info(f'CANCELLED ITN for an old {plan} subscription on {subscription.id} ignored')
-        return
     if plan == Payment.Plan.CYLINDER_SWAP:
         if subscription.swap_addon_active:
             until = lifecycle.cancel_swap_addon(subscription)
