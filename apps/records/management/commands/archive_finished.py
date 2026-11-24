@@ -7,7 +7,7 @@ archives on a save that FINISHES an item, so older ones stay in the lists).
     python manage.py archive_finished               # jobs, tickets and tool bookings
     python manage.py archive_finished --jobs        # only jobs (or --tickets, --tool-bookings)
 
-- Jobs: done / invoiced and Paid ("No charge" jobs aren't archived).
+- Jobs: done / invoiced and Paid or Write-off ("No charge" jobs aren't archived).
 - Tickets: completed / cancelled.
 - Tool bookings: every tool returned (checks may still be waiting).
 
@@ -32,7 +32,7 @@ def _never_unarchived(qs):
 
 
 def finished_jobs():
-    return Job.objects.filter(archived_at__isnull=True, status__in=Job.FINISHED, payment=Job.Payment.PAID)
+    return Job.objects.filter(archived_at__isnull=True, status__in=Job.FINISHED, payment__in=Job.ARCHIVE_PAYMENTS)
 
 
 def finished_tickets():
@@ -45,7 +45,7 @@ def returned_tool_bookings():
 
 
 class Command(BaseCommand):
-    help = ('Archive jobs (done / invoiced + Paid), tickets (completed / cancelled) and tool bookings '
+    help = ('Archive jobs (done / invoiced + Paid or Write-off), tickets (completed / cancelled) and tool bookings '
             '(every tool returned) finished before the archive.')
 
     def add_arguments(self, parser):

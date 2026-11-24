@@ -31,6 +31,7 @@ def items():
         'done no charge': job(3, 'done', 'no_charge'),
         'done unpaid': job(4, 'done', 'unpaid'),
         'open paid': job(5, 'open', 'paid'),
+        'invoiced write-off': job(6, 'invoiced', 'write_off'),
         'completed': make_ticket(client, site, status='completed'),
         'cancelled': make_ticket(client, site, status='cancelled'),
         'in progress': make_ticket(client, site, status='in_progress'),
@@ -49,14 +50,14 @@ def run(*args):
 
 def test_dry_run_only_counts(items):
     out = run('--dry-run')
-    assert 'Jobs: 2 would be archived.' in out and 'Tickets: 2 would be archived.' in out
+    assert 'Jobs: 3 would be archived.' in out and 'Tickets: 2 would be archived.' in out
     assert archived(items) == set()
 
 
 def test_archives_finished_jobs_and_tickets_once(items):
     out = run()
-    assert 'Jobs: archived 2.' in out and 'Tickets: archived 2.' in out
-    assert archived(items) == {'invoiced paid', 'done paid', 'completed', 'cancelled'}
+    assert 'Jobs: archived 3.' in out and 'Tickets: archived 2.' in out
+    assert archived(items) == {'invoiced paid', 'done paid', 'invoiced write-off', 'completed', 'cancelled'}
     one = Job.objects.get(pk=items['invoiced paid'].pk)
     assert (one.archive_reason, one.archive_note, one.archived_by) == ('auto', 'invoiced and paid', None)
     entry = AuditLog.objects.get(object_type='jobs.job', object_id=str(one.pk))
@@ -66,9 +67,9 @@ def test_archives_finished_jobs_and_tickets_once(items):
 
 def test_only_jobs_or_only_tickets(items):
     run('--jobs')
-    assert archived(items) == {'invoiced paid', 'done paid'}
+    assert archived(items) == {'invoiced paid', 'done paid', 'invoiced write-off'}
     run('--tickets')
-    assert archived(items) == {'invoiced paid', 'done paid', 'completed', 'cancelled'}
+    assert archived(items) == {'invoiced paid', 'done paid', 'invoiced write-off', 'completed', 'cancelled'}
 
 
 def test_items_someone_unarchived_are_left_alone(items):

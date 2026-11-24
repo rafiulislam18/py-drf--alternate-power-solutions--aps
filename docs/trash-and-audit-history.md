@@ -49,7 +49,7 @@ What can be archived: **jobs, quote requests (general, solar and container), sol
 
 **Automatic archiving** happens in the same save that finishes the item, and the dashboard shows a notice with **Undo**:
 
-- **Jobs:** status Done or Invoiced **and** payment Paid. "No charge" jobs are never archived automatically.
+- **Jobs:** status Done or Invoiced **and** payment Paid or Write-off. "No charge" jobs are never archived automatically.
 - **Tickets:** status Completed or Cancelled.
 - **Tool bookings:** every tool returned (a partial return doesn't). The checks may still be waiting: those returns stay in **Waiting for check** although the booking is archived. By hand, only a booking with every tool back can be archived.
 - **Quote requests and solar estimates:** never automatically, only by hand.

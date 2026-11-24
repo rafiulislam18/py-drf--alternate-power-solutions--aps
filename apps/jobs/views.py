@@ -71,7 +71,7 @@ PAGE_SIZE = 50
 STATUS_RANK = Case(*[When(status=s, then=Value(i)) for i, s in enumerate(Job.Status.values)],
                    default=Value(len(Job.Status.values)), output_field=IntegerField())
 NEWEST = [F('date_added').desc(nulls_last=True), '-last_updated', '-number']
-# Done / invoiced but not marked Paid or No charge (unpaid, paid deposit or not set) — waiting since the
+# Done / invoiced but not marked Paid, No charge or Write-off (unpaid, paid deposit or not set) — waiting since the
 # completion date (or the last update when there's none), like the sheet's unpaid alert.
 UNPAID = Q(status__in=Job.FINISHED) & ~Q(payment__in=Job.SETTLED)
 UNPAID_SINCE = Case(When(UNPAID, then=Coalesce('completion_date', TruncDate('last_updated'))),
@@ -191,7 +191,7 @@ class JobListView(_JobView):
         thresholds = JobSettings.load()
         if p.get('attention'):  # live jobs at "watch" or worse
             qs = qs.filter(needs_attention(thresholds))
-        if p.get('awaiting_payment'):  # done / invoiced, not paid or no charge
+        if p.get('awaiting_payment'):  # done / invoiced, not paid, no charge or write-off
             qs = qs.filter(UNPAID)
         if p.get('unassigned'):  # live, nobody assigned
             qs = qs.filter(UNASSIGNED).distinct()

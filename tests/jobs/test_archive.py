@@ -1,5 +1,5 @@
 """
-Archiving jobs: the auto rule (done / invoiced + Paid, on create and edit),
+Archiving jobs: the auto rule (done / invoiced + Paid or Write-off, on create and edit),
 its edge cases, archive / unarchive / bulk with the jobs.archive permission,
 the active / archived / include-archived lists, counts and summary tiles,
 audit entries, trash + restore, and imports that never auto-archive.
@@ -63,6 +63,27 @@ def test_an_edit_that_makes_a_job_done_and_paid_archives_it(api):
     assert res['archive_event'] == {'action': 'archived', 'automatic': True, 'note': 'done and paid'}
     assert archived(job)
     assert actions(job)[-1] == ('archived', 'Archived automatically: done and paid')
+
+
+def test_a_finished_written_off_job_archives_like_a_paid_one(api, boss):
+    created = create(api, status='invoiced', payment='write_off')
+    assert created['archive_event'] == {'action': 'archived', 'automatic': True, 'note': 'invoiced and written off'}
+    assert created['archive_reason'] == 'auto' and archived(created)
+
+    job = create(api, status='done', payment='unpaid')
+    res = patch(api, job, payment='write_off')
+    assert res['archive_event'] == {'action': 'archived', 'automatic': True, 'note': 'done and written off'}
+    assert actions(job)[-1] == ('archived', 'Archived automatically: done and written off')
+    # Paid <-> Write-off stays inside the rule: nothing happens.
+    assert patch(api, job, payment='paid')['archive_event'] is None and archived(job)
+    assert patch(api, job, payment='write_off')['archive_event'] is None and archived(job)
+    # Back to Unpaid brings it back; Undo keeps it active until it's written off again.
+    assert patch(api, job, payment='unpaid')['archive_event']['note'] == 'payment changed to Unpaid'
+    patch(api, job, payment='write_off')
+    assert api.post(f"{JOBS}{job['id']}/unarchive/").status_code == 200  # Undo
+    assert patch(api, job, status='invoiced')['archive_event'] is None and not archived(job)
+    # Not finished: not archived.
+    assert create(api, status='in_progress', payment='write_off')['archive_event'] is None
 
 
 def test_payment_back_to_unpaid_brings_an_auto_archived_job_back(api):

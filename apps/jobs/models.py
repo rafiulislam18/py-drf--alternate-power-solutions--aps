@@ -15,7 +15,7 @@ Operations spreadsheet (Apps Script: 00_Config, 03_Escalations, 07_Triggers_Menu
 - Categories are an editable list (``JobCategory``): added, renamed or
   switched off on the dashboard, never deleted (jobs keep pointing at them).
 - Archive (``ArchivableModel``): a job is archived automatically when a
-  dashboard save makes it done / invoiced AND Paid ("No charge" jobs aren't).
+  dashboard save makes it done / invoiced AND Paid or Write-off ("No charge" jobs aren't).
   Rules in ``apps.records.archive``.
 """
 
@@ -61,9 +61,13 @@ class Job(TrashableModel, ArchivableModel):
         DEPOSIT = 'deposit', 'Paid deposit'
         UNPAID = 'unpaid', 'Unpaid'
         NO_CHARGE = 'no_charge', 'No charge'
+        # Invoiced but never coming in: APS won't chase it.
+        WRITE_OFF = 'write_off', 'Write-off'
 
-    # Nothing more to collect.
-    SETTLED = (Payment.PAID, Payment.NO_CHARGE)
+    # Nothing more to collect (kept out of the unpaid alerts).
+    SETTLED = (Payment.PAID, Payment.NO_CHARGE, Payment.WRITE_OFF)
+    # Finished jobs with these are archived automatically.
+    ARCHIVE_PAYMENTS = (Payment.PAID, Payment.WRITE_OFF)
 
     FINISHED = (Status.DONE, Status.INVOICED)
     # Only these get the age colours; the rest are parked or closed.
@@ -121,12 +125,13 @@ class Job(TrashableModel, ArchivableModel):
         return f'{self.job_id} · {name}'
 
     def auto_archive_note(self):
-        if self.status in self.FINISHED and self.payment == self.Payment.PAID:
-            return f'{self.get_status_display().lower()} and paid'
+        if self.status in self.FINISHED and self.payment in self.ARCHIVE_PAYMENTS:
+            outcome = 'paid' if self.payment == self.Payment.PAID else 'written off'
+            return f'{self.get_status_display().lower()} and {outcome}'
         return None
 
     def auto_unarchive_note(self):
-        if self.payment != self.Payment.PAID:
+        if self.payment not in self.ARCHIVE_PAYMENTS:
             return f"payment changed to {self.get_payment_display() if self.payment else 'not set'}"
         return f"status changed to {self.get_status_display() if self.status else 'no status'}"
 

@@ -413,6 +413,7 @@ def test_summary_counts_every_job_and_matches_each_filter(api, boss):
         'deposit': create(api, client_name='deposit', status='invoiced', payment='deposit'),
         'paid': create(api, client_name='paid', status='invoiced', payment='paid'),
         'no charge': create(api, client_name='no charge', status='done', payment='no_charge'),
+        'write-off': create(api, client_name='write-off', status='invoiced', payment='write_off'),
         'on hold': create(api, client_name='on hold', status='on_hold'),
         'visit tomorrow': create(api, client_name='visit tomorrow', scheduled_date=str(today + timedelta(days=1))),
         'trashed': create(api, client_name='trashed', scheduled_date=str(today)),
@@ -421,6 +422,8 @@ def test_summary_counts_every_job_and_matches_each_filter(api, boss):
         'not accepted visit': create(api, client_name='not accepted visit', status='not_accepted',
                                      scheduled_date=str(today)),
     }
+    # Undo its auto-archive, so it's an active finished job that still isn't awaiting payment.
+    assert api.post(f"{JOBS}{jobs['write-off']['id']}/unarchive/").status_code == 200
     age(jobs['stale open']['id'], 10)
     age(jobs['three people']['id'], 30)
     assert api.delete(f"{JOBS}{jobs['trashed']['id']}/").status_code == 204
