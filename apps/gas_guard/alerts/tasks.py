@@ -18,6 +18,12 @@ Alerting is edge-triggered per site via LowGasAlertState: an alert fires once
 when a site drops to low, stays quiet while it remains low, and a recovery email
 is sent once when a refill lifts it back above the threshold. This is what stops
 the hourly task from re-sending the same alert every run.
+
+A second "Gas almost empty" alert fires the same way at the critical threshold
+(default 10%), to the same people. A drop straight past both levels between two
+checks sends only that one. A refill above the low threshold resets both (one
+refill email); a refill that only gets back above the critical threshold
+quietly re-arms that level.
 """
 
 import logging
@@ -73,6 +79,7 @@ def check_low_gas(self):
     Runs hourly via Celery Beat.
     """
     threshold = settings.GAS_GUARD_LOW_GAS_THRESHOLD_PCT
+    critical = settings.GAS_GUARD_CRITICAL_GAS_THRESHOLD_PCT
     now = timezone.now()
     checked_at = _schedule_now().strftime('%d/%m/%Y %H:%M:%S')
 
@@ -97,11 +104,12 @@ def check_low_gas(self):
             'pct': pct,
             'gas_kg': max(payload['latest']['totalKg'] - payload['tareKg'], 0.0),
             'threshold': threshold,
+            'critical_threshold': critical,
             'est_days': payload['estDaysLeft'],
             'checked_at': checked_at,
         }
 
-        outcome = _handle_transition(device, is_low, context, now)
+        outcome = _handle_transition(device, is_low, pct <= critical, context, now)
         if outcome == 'alerted':
             alerted += 1
         elif outcome == 'recovered':
@@ -115,16 +123,34 @@ def check_low_gas(self):
     return msg
 
 
-def _handle_transition(device, is_low, context, now):
+def _handle_transition(device, is_low, is_critical, context, now):
     """
-    Compare the site's current low/ok state with the stored latch and email only
-    on a transition (ok → low, or low → ok). Returns 'alerted', 'recovered', or
-    None. Email failures never propagate.
+    Compare the site's current ok/low/critical state with the stored latches and
+    email only on a transition (→ critical, ok → low, or low → ok). Returns
+    'alerted', 'recovered', or None. Email failures never propagate.
     """
     from .models import LowGasAlertState
 
     state, _ = LowGasAlertState.objects.get_or_create(device=device)
     recipients = _recipients_for(device)
+
+    if is_critical and not state.is_critical:
+        # Just went almost empty. Also latches low, so a drop straight past
+        # both levels sends only this alert.
+        state.is_active = True
+        state.is_critical = True
+        state.last_pct = context['pct']
+        state.last_triggered_at = now
+        state.save()
+        context = {**context, 'is_fault': True, 'is_critical': True, 'threshold': context['critical_threshold']}
+        sent = send_low_gas_email(context, recipients)
+        queue_low_gas_push(device, context['site_name'], context['pct'],
+                           critical=True, est_days=context['est_days'])
+        logger.warning(
+            'Gas almost empty alert for %s at %s%% (email sent=%s)',
+            device, context['pct'], sent,
+        )
+        return 'alerted'
 
     if is_low and not state.is_active:
         # Rising edge: cylinder just went low.
@@ -142,8 +168,9 @@ def _handle_transition(device, is_low, context, now):
         return 'alerted'
 
     if not is_low and state.is_active:
-        # Falling edge: cylinder refilled above threshold.
+        # Falling edge: cylinder refilled above threshold. Resets both levels.
         state.is_active = False
+        state.is_critical = False
         state.last_pct = context['pct']
         state.last_recovered_at = now
         state.save()
@@ -155,7 +182,10 @@ def _handle_transition(device, is_low, context, now):
         )
         return 'recovered'
 
-    # No transition — keep the latest pct but stay quiet.
+    # No alert — keep the latest pct but stay quiet. A part refill back above
+    # the critical level (still low) re-arms that level only.
     state.last_pct = context['pct']
-    state.save(update_fields=['last_pct', 'updated_at'])
+    if state.is_critical and not is_critical:
+        state.is_critical = False
+    state.save(update_fields=['last_pct', 'is_critical', 'updated_at'])
     return None

@@ -84,8 +84,8 @@ def _device_with_total(owner, total_kg, *, tare='15.00', full='48.00'):
 @pytest.mark.django_db
 @patch(SEND_EMAIL_PATH, return_value=True)
 def test_low_gas_rising_edge_alerts_once(mock_email, owner):
-    # total 20kg, tare 15, full 48 → gas 5kg → ~10% ≤ 30% threshold → LOW.
-    dev = _device_with_total(owner, '20.0')
+    # total 25kg, tare 15, full 48 → gas 10kg → ~21% ≤ 30% threshold → LOW.
+    dev = _device_with_total(owner, '25.0')
 
     check_low_gas.apply().get()
 
@@ -115,7 +115,7 @@ def test_healthy_site_does_not_alert(mock_email, owner):
 @pytest.mark.django_db
 @patch(SEND_EMAIL_PATH, return_value=True)
 def test_recovery_edge_sends_recovery_and_clears_latch(mock_email, owner):
-    dev = _device_with_total(owner, '20.0')  # low
+    dev = _device_with_total(owner, '25.0')  # low
     check_low_gas.apply().get()
     assert LowGasAlertState.objects.get(device=dev).is_active is True
     assert mock_email.call_count == 1
@@ -144,7 +144,7 @@ def test_device_without_readings_is_skipped(mock_email, owner):
 
 @pytest.mark.django_db
 def test_low_gas_alert_state_str(owner):
-    dev = _device_with_total(owner, '20.0')
+    dev = _device_with_total(owner, '25.0')
     state = LowGasAlertState.objects.create(device=dev, is_active=True)
     assert 'LOW' in str(state)
 
@@ -161,7 +161,7 @@ def _recipients(mock):
 @patch(SEND_EMAIL_PATH, return_value=True)
 def test_monitored_site_emails_owner_and_office(mock_email, owner):
     from apps.gas_guard.subscription.models import Subscription
-    dev = _device_with_total(owner, '20.0')
+    dev = _device_with_total(owner, '25.0')
     Subscription.objects.create(user=owner, device=dev, is_active=True)
     owner.notify_email = 'alerts@owner.example'
     owner.save()
@@ -175,7 +175,7 @@ def test_monitored_site_emails_owner_and_office(mock_email, owner):
 @patch(SEND_EMAIL_PATH, return_value=True)
 def test_unmonitored_site_emails_the_office_only(mock_email, owner, subscription):
     from apps.gas_guard.subscription.models import Subscription
-    dev = _device_with_total(owner, '20.0')
+    dev = _device_with_total(owner, '25.0')
     if subscription is not None:
         Subscription.objects.create(user=owner, device=dev, is_active=subscription)
     check_low_gas.apply().get()
@@ -193,7 +193,7 @@ def test_subscription_is_per_site(mock_email, owner):
     from apps.gas_guard.subscription.models import Subscription
     paid = _device_with_total(owner, '45.0')
     Subscription.objects.create(user=owner, device=paid, is_active=True)  # account tier: subscribed
-    _device_with_total(owner, '20.0')  # this one isn't subscribed
+    _device_with_total(owner, '25.0')  # this one isn't subscribed
     check_low_gas.apply().get()
     assert _recipients(mock_email) == [['info@aps.example']]
 
@@ -220,7 +220,7 @@ def test_switch_off_means_no_owner_email_for_any_site(mock_email, owner):
     from apps.gas_guard.subscription.models import Subscription
     owner.email_alerts_enabled = False
     owner.save()
-    dev = _device_with_total(owner, '20.0')
+    dev = _device_with_total(owner, '25.0')
     Subscription.objects.create(user=owner, device=dev, is_active=True)
     check_low_gas.apply().get()
     assert _recipients(mock_email) == [['info@aps.example']]  # the office still gets it

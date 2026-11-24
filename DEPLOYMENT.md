@@ -206,7 +206,7 @@ The frontend build with the Notifications settings must be deployed first. Notif
 
 **Ticket message:** with notifications on for a client account on the phone, close the app. From a computer, signed in as staff, write in that client's ticket chat. The phone should show "New message on APS-…" within about 5 seconds. Tapping it opens the ticket. It also works the other way round, with notifications on for a staff account.
 
-**Gas Guard:** open `/gas-guard`, sign in, install the Gas Guard app the same way. In Settings → Notifications, turn on and send a test. A real low-gas notification comes from the hourly check, once, when a cylinder drops to 30% or below.
+**Gas Guard:** open `/gas-guard`, sign in, install the Gas Guard app the same way. In Settings → Notifications, turn on and send a test. Real low-gas notifications come from the hourly check: once when a cylinder drops to 30% or below, and once more ("Gas almost empty") at 10% or below.
 
 ### 4.6 Scheduled notifications and admin alerts
 

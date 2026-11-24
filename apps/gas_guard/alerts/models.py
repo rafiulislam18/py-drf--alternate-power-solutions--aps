@@ -11,7 +11,8 @@ class LowGasAlertState(models.Model):
     again). Without this, the hourly task would re-alert every run while a
     cylinder stays low.
 
-    One row per device (a "site"). `is_active` is the alert latch.
+    One row per device (a "site"). `is_active` is the low (30%) latch and
+    `is_critical` the almost-empty (10%) latch; a critical site is low too.
     """
 
     device = models.OneToOneField(
@@ -21,6 +22,8 @@ class LowGasAlertState(models.Model):
     )
     # True while the site is below the threshold and has been alerted.
     is_active = models.BooleanField(default=False)
+    # True while the site is at/below the critical threshold and has been alerted.
+    is_critical = models.BooleanField(default=False)
     # Percentage remaining recorded at the last state change (for the message).
     last_pct = models.IntegerField(null=True, blank=True)
     last_triggered_at = models.DateTimeField(null=True, blank=True)
@@ -28,5 +31,5 @@ class LowGasAlertState(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        state = 'LOW' if self.is_active else 'ok'
+        state = 'ALMOST EMPTY' if self.is_critical else 'LOW' if self.is_active else 'ok'
         return f'{self.device} — {state}'

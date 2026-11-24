@@ -1,5 +1,5 @@
 """
-Low-gas alert email delivery.
+Low-gas alert email delivery (low, "Gas almost empty" and refilled).
 
 A single branded HTML email is sent to both the site owner (the client) and the
 APS admin inbox. Failures are logged and swallowed — an alert that fails to
@@ -75,14 +75,34 @@ def _details_block(context):
     """
 
 
+def left_text(pct, est_days):
+    """'8% left (~3 days)' — the "Gas almost empty" email and push line."""
+    if est_days is None:
+        return f'{pct}% left'
+    return f'{pct}% left (~{est_days} day{"" if est_days == 1 else "s"})'
+
+
+def almost_empty_subject(site_name):
+    return f'Gas almost empty: {site_name}'
+
+
 def _build_email_html(context):
-    """Render the low-gas or recovery email body from the alert context."""
+    """Render the low-gas, almost-empty or recovery email body from the alert context."""
     is_fault = context['is_fault']
     site = html.escape(str(context.get('site_name', 'a site')))
     pct = context.get('pct')
     threshold = context.get('threshold')
 
-    if is_fault:
+    if is_fault and context.get('is_critical'):
+        accent = ALARM
+        badge = 'ALMOST EMPTY'
+        title = html.escape(almost_empty_subject(context.get('site_name', 'a site')))
+        intro = (
+            f"<strong>{left_text(pct, context.get('est_days'))}</strong>. The cylinder at "
+            f"<strong>{site}</strong> is at or below the {threshold}% level. "
+            f"Arrange a refill now."
+        )
+    elif is_fault:
         accent = ALARM if (pct is not None and pct <= 12) else WARN
         badge = 'LOW GAS'
         title = f'{site} is running low'
@@ -126,11 +146,12 @@ def send_low_gas_email(context, recipients):
 
     is_fault = context['is_fault']
     site = context.get('site_name', 'a site')
-    subject = (
-        f'Gas Guard: {site} is low on gas'
-        if is_fault
-        else f'Gas Guard: {site} refilled'
-    )
+    if is_fault and context.get('is_critical'):
+        subject = almost_empty_subject(site)
+    elif is_fault:
+        subject = f'Gas Guard: {site} is low on gas'
+    else:
+        subject = f'Gas Guard: {site} refilled'
     try:
         email = EmailMessage(
             subject=subject,

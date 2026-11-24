@@ -11,10 +11,10 @@ def push_ticket_message(message_id):
 
 
 @shared_task(ignore_result=True)
-def push_low_gas(device_id, site_name, pct):
-    """A Gas Guard cylinder just went low → its owner's and the Gas Guard admins' devices."""
+def push_low_gas(device_id, site_name, pct, critical=False, est_days=None):
+    """A Gas Guard cylinder just went low (or almost empty) → its owner's and the Gas Guard admins' devices."""
     from .gas import send_low_gas_push
-    send_low_gas_push(device_id, site_name, pct)
+    send_low_gas_push(device_id, site_name, pct, critical, est_days)
 
 
 @shared_task(ignore_result=True)

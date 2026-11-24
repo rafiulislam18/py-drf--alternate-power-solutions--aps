@@ -775,6 +775,9 @@ PAYFAST_SOLAR_CLEANING_NOTIFY_URL = os.getenv('PAYFAST_SOLAR_CLEANING_NOTIFY_URL
 # Percentage at/below which a cylinder is considered low and an alert fires.
 # Mirrors LOW_THRESHOLD_PCT in the Gas Guard frontend (data/gas_guard/types.ts).
 GAS_GUARD_LOW_GAS_THRESHOLD_PCT = int(os.getenv('GAS_GUARD_LOW_GAS_THRESHOLD_PCT', '30'))
+# Second, "Gas almost empty" alert at/below this percentage (on top of the low one).
+# Mirrors CRITICAL_THRESHOLD_PCT in the Gas Guard frontend (data/gas_guard/types.ts).
+GAS_GUARD_CRITICAL_GAS_THRESHOLD_PCT = int(os.getenv('GAS_GUARD_CRITICAL_GAS_THRESHOLD_PCT', '10'))
 
 # ====================== WEB PUSH NOTIFICATIONS (apps.push) ======================
 # VAPID keys for the installed apps' notifications (APS dashboard + Gas Guard).

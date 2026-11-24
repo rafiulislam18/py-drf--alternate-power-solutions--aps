@@ -245,6 +245,10 @@ EMAIL_RECIPIENT = 'admin@example.com'
 # Without it apps.accounts.emails raises AttributeError and the email never goes.
 FRONTEND_BASE_URL = 'https://frontend.example'
 
+# Gas Guard low-gas alert levels (same defaults as config/settings.py).
+GAS_GUARD_LOW_GAS_THRESHOLD_PCT = 30
+GAS_GUARD_CRITICAL_GAS_THRESHOLD_PCT = 10
+
 # Same sign-in backends as production (case-insensitive usernames).
 AUTHENTICATION_BACKENDS = [
     'apps.core.backends.CaseInsensitiveModelBackend',
