@@ -2,7 +2,7 @@ from django.contrib import admin
 
 from apps.records.admin import TrashableAdmin
 
-from .models import Booking, BookingItem, Movement, Tool, ToolSettings, ToolType
+from .models import Booking, BookingItem, Movement, Tool, ToolSettings, ToolType, Vehicle
 
 
 @admin.register(Tool)
@@ -44,8 +44,8 @@ class MovementInline(admin.TabularInline):
 
 @admin.register(Booking)
 class BookingAdmin(TrashableAdmin):
-    list_display = ['booking_id', 'technician', 'date_out', 'due_date', 'long_term_kit', 'archived_at']
-    list_filter = ['long_term_kit']
+    list_display = ['booking_id', 'technician', 'vehicle', 'date_out', 'due_date', 'long_term_kit', 'archived_at']
+    list_filter = ['long_term_kit', 'vehicle']
     search_fields = ['number', 'technician__first_name', 'technician__username', 'items__tool_label']
     readonly_fields = ['booking_id', 'technician', 'date_out', 'created_by', 'created_at', 'overdue_alert_at']
     raw_id_fields = ['job']
@@ -69,3 +69,12 @@ class ToolTypeAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return False  # tools keep pointing at their type; switch it off instead
+
+
+@admin.register(Vehicle)
+class VehicleAdmin(admin.ModelAdmin):
+    list_display = ['name', 'registration', 'order', 'is_active']
+    list_editable = ['order', 'is_active']
+
+    def has_delete_permission(self, request, obj=None):
+        return False  # bookings keep pointing at their vehicle; switch it off instead

@@ -25,7 +25,7 @@ SECTIONS = [
         'perms': [('view', 'View tools & bookings'), ('create', 'Add tools'), ('edit', 'Edit tools'),
                   ('book', 'Book out & return tools'), ('check', 'Can check tools (confirm book-outs & returns)'),
                   ('delete', 'Delete tools'), ('archive', 'Archive & unarchive bookings'),
-                  ('settings', 'Change tool booking settings (colours, alerts & tool types)')],
+                  ('settings', 'Change tool booking settings (colours, alerts, tool types & vehicles)')],
     },
     {
         'key': 'reports', 'label': 'Solar dashboard — reports',

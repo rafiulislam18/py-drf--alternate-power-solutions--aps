@@ -259,8 +259,8 @@ def _invalid(field, message):
 # ── book out ─────────────────────────────────────────────────────────────────
 
 @transaction.atomic
-def book_out(user, *, technician, items, date_out, due_date=None, long_term_kit=False, job=None, notes='',
-             notify=True, confirm_handover=False):
+def book_out(user, *, technician, items, date_out, due_date=None, long_term_kit=False, job=None, vehicle=None,
+             notes='', notify=True, confirm_handover=False):
     """Create a booking. ``items`` = [(tool id, quantity)]. Returns
     (booking, [archive events of bookings a handover emptied])."""
     today = timezone.localdate()
@@ -315,7 +315,7 @@ def book_out(user, *, technician, items, date_out, due_date=None, long_term_kit=
         raise HandoverNeeded(conflicts)
 
     booking = Booking(technician=technician, date_out=date_out, due_date=due_date, long_term_kit=long_term_kit,
-                      job=job, notes=notes, notify=notify, created_by=user)
+                      job=job, vehicle=vehicle, notes=notes, notify=notify, created_by=user)
     save_with_next_number(booking)
     made = BookingItem.objects.bulk_create([
         BookingItem(booking=booking, tool=tools[tid], tool_label=tools[tid].label, quantity=q)
@@ -331,6 +331,8 @@ def book_out(user, *, technician, items, date_out, due_date=None, long_term_kit=
         summary += f' · due {due_date:%d %b %Y}'
     if long_term_kit:
         summary += ' · long-term kit'
+    if vehicle:
+        summary += f' · in {vehicle}'
     if movement.is_checked:
         summary += ' · checked straight away'
     audit.log(user, 'booked_out', booking, summary=summary)

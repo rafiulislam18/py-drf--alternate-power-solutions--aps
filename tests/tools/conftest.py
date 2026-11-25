@@ -1,4 +1,4 @@
-"""Shared set-up for the tool booking tests. Tests skip migrations, so seed the tool types."""
+"""Shared set-up for the tool booking tests. Tests skip migrations, so seed the tool types and vehicles."""
 
 import importlib
 from datetime import timedelta
@@ -9,7 +9,7 @@ from django.utils import timezone
 
 from apps.core.models import ClientProfile
 from apps.staff.models import StaffAccess
-from apps.tools.models import Tool, ToolType
+from apps.tools.models import Tool, ToolType, Vehicle
 
 from ..client_portal.conftest import api_for
 
@@ -21,6 +21,7 @@ BOOKINGS = '/tools/bookings/'
 def tool_types(db):
     from django.apps import apps
     importlib.import_module('apps.tools.migrations.0002_seed_types').seed(apps, None)
+    importlib.import_module('apps.tools.migrations.0007_seed_vehicles').seed(apps, None)
 
 
 def make_staff(username, perms=None, first_name='', email=''):
@@ -50,6 +51,10 @@ def lucky(db):
 
 def type_id(name='Drills'):
     return ToolType.objects.get(name=name).pk
+
+
+def vehicle_id(name='Lucky Isuzu'):
+    return Vehicle.objects.get(name=name).pk
 
 
 def add_tool(api, **data):

@@ -15,6 +15,8 @@ The sheet mixed a register of tools with a log of who took them. Here:
 - ``Movement`` is one book-out or one return (some or all of a booking's
   tools at once). Each waits for a checker ("Waiting for check") until someone
   with "Can check tools" confirms it, unless that person entered it.
+- ``Vehicle`` is a company vehicle a booking can name, so the Tools page can
+  show what's in each vehicle and what's in the store room.
 - ``ToolSettings`` holds the "out a long time" colours, when that counts as
   overdue, the default due date and who gets the alert emails.
 
@@ -56,6 +58,24 @@ class ToolType(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class Vehicle(models.Model):
+    """A company vehicle ("Lorenzo NP200", CAA 636 441). Switched off = can't
+    be picked for new bookings, but bookings that use it keep it. Never deleted."""
+
+    audit_section = 'tools'
+
+    name = models.CharField(max_length=60, unique=True)
+    registration = models.CharField(max_length=20, blank=True)
+    order = models.PositiveSmallIntegerField(default=0)
+    is_active = models.BooleanField('in use', default=True)
+
+    class Meta:
+        ordering = ['order', 'name']
+
+    def __str__(self):
+        return ' · '.join(x for x in (self.name, self.registration) if x)
 
 
 class Tool(TrashableModel):
@@ -137,6 +157,8 @@ class Booking(TrashableModel, ArchivableModel):
     # A technician's personal kit: no due date and never overdue.
     long_term_kit = models.BooleanField('long-term kit', default=False)
     job = models.ForeignKey('jobs.Job', on_delete=models.SET_NULL, null=True, blank=True, related_name='tool_bookings')
+    # The vehicle the tools travel in (optional; old imported bookings have none).
+    vehicle = models.ForeignKey(Vehicle, on_delete=models.PROTECT, null=True, blank=True, related_name='bookings')
     notes = models.TextField(blank=True)
     # Send the booked-out / returned alerts (the sheet's "Notify" tick box).
     notify = models.BooleanField(default=True)
@@ -206,6 +228,7 @@ class Booking(TrashableModel, ArchivableModel):
             'due_date': self.due_date,
             'long_term_kit': self.long_term_kit,
             'job': self.job.job_id if self.job_id else '',
+            'vehicle': str(self.vehicle) if self.vehicle_id else '',
             'notes': self.notes,
             'items': [{'label': i.tool_label, 'quantity': i.quantity, 'returned': i.return_movement_id is not None}
                       for i in self.items.all()],

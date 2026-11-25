@@ -114,7 +114,7 @@ def _send(subject, heading, booking, body, log_prefix):
 
 
 def _booking(pk):
-    return (Booking.all_objects.select_related('technician', 'job')
+    return (Booking.all_objects.select_related('technician', 'job', 'vehicle')
             .prefetch_related('items', 'movements').filter(pk=pk).first())
 
 
@@ -131,6 +131,7 @@ def send_booked(booking_id):
         _row('Date out', _date(booking.date_out)),
         _row('Due back', 'Long-term kit (no due date)' if booking.long_term_kit else _date(booking.due_date)),
         _row('Job', escape(booking.job.job_id)) if booking.job_id else '',
+        _row('Vehicle', escape(str(booking.vehicle))) if booking.vehicle_id else '',
         _row('Notes', escape(booking.notes)) if booking.notes else '',
     ]
     body = f"""

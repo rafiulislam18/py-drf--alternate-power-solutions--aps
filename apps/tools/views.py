@@ -11,23 +11,24 @@ Tool bookings API (mounted at ``/tools/``): staff only, per permission
     PATCH  /tools/<id>/                  edit, incl. condition (tools.edit)
     DELETE /tools/<id>/                  move to the trash (tools.delete), not while any unit is out
     GET    /tools/bookings/              ?status=out|overdue|partly|returned &check=waiting|checked|flagged
-                                         &technician=<id>|me &since=week|month|quarter
+                                         &technician=<id>|me &vehicle=<id>|none &since=week|month|quarter
                                          &tile=out|check|overdue|due_soon|problems (a tile ignores the archive view)
                                          &tool=<id> &q &page &archived=1 | &include_archived=1
                                          (waiting-for-check filters always include archived bookings)
     POST   /tools/bookings/              book out (tools.book); 409 {conflicts} when a tool is out with
                                          someone else, unless ``confirm_handover``
     GET    /tools/bookings/<id>/         one booking with its movements (book-out, returns, checks)
-    PATCH  /tools/bookings/<id>/         due date, long-term kit, job, notes (tools.book)
+    PATCH  /tools/bookings/<id>/         due date, long-term kit, job, vehicle, notes (tools.book)
     DELETE /tools/bookings/<id>/         move to the trash (tools.book), only while nothing is returned
     POST   /tools/bookings/<id>/return/  return some or all tools (tools.book) → ``archive_event``
     POST   /tools/bookings/check/        confirm what's waiting on these bookings (tools.check)
     POST   /tools/bookings/<id>/resolve/ mark its problems resolved, {note} (tools.check)
     POST   /tools/bookings/<id>/archive/ | unarchive/, /tools/bookings/bulk-archive/ (tools.archive)
     GET    /tools/who-has-what/          tools still out, by technician (the bookings filters apply)
-    GET    /tools/options/               types, conditions, staff, settings, can_check
+    GET    /tools/options/               types, vehicles, conditions, staff (+ last_vehicle), settings, can_check
     GET    /tools/settings/              colours, overdue, default due date, alerts; PATCH: tools.settings
     POST   /tools/types/, PATCH /tools/types/<id>/   tool types (tools.settings), never deleted
+    POST   /tools/vehicles/, PATCH /tools/vehicles/<id>/   vehicles (tools.settings), never deleted
 
 The rules are in apps.tools.services; every change is in the audit history.
 """
@@ -37,7 +38,7 @@ from datetime import timedelta
 from functools import partial
 
 from django.db import transaction
-from django.db.models import Max, Prefetch, Q
+from django.db.models import Max, OuterRef, Prefetch, Q, Subquery
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status
@@ -48,10 +49,13 @@ from apps.records import archive, audit
 from apps.staff.permissions import HasDashboardPerm
 from utils.exceptions import custom_exception_handler
 
-from .models import Booking, BookingItem, Movement, Tool, ToolSettings, ToolType, format_booking_id, format_tool_id
+from .models import (
+    Booking, BookingItem, Movement, Tool, ToolSettings, ToolType, Vehicle, format_booking_id, format_tool_id,
+)
 from .serializers import (
     BookingUpdateSerializer, BookOutSerializer, CheckSerializer, ReturnSerializer, ToolSettingsSerializer,
-    ToolTypeSerializer, ToolWriteSerializer, booking_detail, booking_row, person, staff_queryset, tool_row,
+    ToolTypeSerializer, ToolWriteSerializer, VehicleSerializer, booking_detail, booking_row, person, staff_queryset,
+    tool_row,
 )
 from .services import (
     HandoverNeeded, booking_state, book_out, can_check, confirm, due_soon_q, next_number, open_items, overdue_q,
@@ -73,7 +77,8 @@ def _int(value):
 
 
 def _bookings():
-    return Booking.objects.select_related('technician', 'job', 'created_by', 'archived_by', 'problem_resolved_by').prefetch_related(
+    return Booking.objects.select_related('technician', 'job', 'vehicle', 'created_by', 'archived_by',
+                                          'problem_resolved_by').prefetch_related(
         Prefetch('items', queryset=BookingItem.objects.select_related('tool').order_by('id')),
         Prefetch('movements', queryset=Movement.objects.select_related('recorded_by', 'checked_by')),
     )
@@ -81,7 +86,7 @@ def _bookings():
 
 def _holders(tool_ids=None):
     """{tool id: [open items]} with their booking and technician."""
-    qs = open_items().select_related('booking__technician')
+    qs = open_items().select_related('booking__technician', 'booking__vehicle')
     if tool_ids is not None:
         qs = qs.filter(tool_id__in=list(tool_ids))
     found = {}
@@ -158,7 +163,8 @@ class ToolListView(_ToolsView):
         if q:
             def hit(r):
                 text = ' '.join([r['name'], r['brand'], r['model'], r['serial'], r['tool_id'], r['type_label'],
-                                 *(h['technician']['name'] for h in r['holders'])]).lower()
+                                 *(h['technician']['name'] for h in r['holders']),
+                                 *(h['vehicle']['name'] for h in r['holders'] if h['vehicle'])]).lower()
                 return all(word in text for word in q.split())
             rows = [r for r in rows if hit(r)]
         return Response({'results': rows, 'count': len(rows), 'counts': counts,
@@ -254,6 +260,11 @@ def filter_bookings(qs, request, settings, today):
         qs = qs.filter(technician=request.user)
     elif _int(technician) is not None:
         qs = qs.filter(technician_id=_int(technician))
+    vehicle = p.get('vehicle')
+    if vehicle == 'none':
+        qs = qs.filter(vehicle__isnull=True)
+    elif _int(vehicle) is not None:
+        qs = qs.filter(vehicle_id=_int(vehicle))
     if p.get('since') in SINCE_DAYS:
         qs = qs.filter(date_out__gte=today - timedelta(days=SINCE_DAYS[p['since']]))
     if _int(p.get('tool')) is not None:
@@ -264,7 +275,8 @@ def filter_bookings(qs, request, settings, today):
             match = (Q(technician__first_name__icontains=word) | Q(technician__last_name__icontains=word)
                      | Q(technician__username__icontains=word) | Q(notes__icontains=word)
                      | Q(items__tool_label__icontains=word) | Q(items__tool__name__icontains=word)
-                     | Q(items__tool__brand__icontains=word) | Q(items__tool__serial__icontains=word))
+                     | Q(items__tool__brand__icontains=word) | Q(items__tool__serial__icontains=word)
+                     | Q(vehicle__name__icontains=word) | Q(vehicle__registration__icontains=word))
             upper = word.upper()
             if upper.startswith('TB') and upper.removeprefix('TB').lstrip('-').isdigit():
                 match |= Q(number=int(upper.removeprefix('TB').lstrip('-')))
@@ -304,7 +316,7 @@ class BookingListView(_ToolsView):
             booking, events = book_out(
                 request.user, technician=d['technician'], items=[(i['tool'], i['quantity']) for i in d['items']],
                 date_out=d['date_out'], due_date=d.get('due_date'), long_term_kit=d['long_term_kit'],
-                job=d.get('job'), notes=d['notes'], notify=d['notify'], confirm_handover=d['confirm_handover'])
+                job=d.get('job'), vehicle=d.get('vehicle'), notes=d['notes'], notify=d['notify'], confirm_handover=d['confirm_handover'])
         except HandoverNeeded as exc:
             names = ', '.join(f"{c['name']} ({c['holder']})" for c in exc.conflicts)
             return Response({'detail': f'Already out with someone else: {names}. Book it only if it was handed over.',
@@ -463,11 +475,16 @@ class ToolOptionsView(_ToolsView):
         # People who've had tools most recently first, for the book-out picker.
         recent = {row['technician']: row['last'] for row in
                   Booking.objects.values('technician').annotate(last=Max('date_out'))}
+        # The vehicle on each person's latest booking: the book-out form's default.
+        last_vehicle = Subquery(Booking.objects.filter(technician=OuterRef('pk'))
+                                .order_by('-date_out', '-number').values('vehicle')[:1])
         staff = sorted(({'id': u.pk, 'name': person(u)['name'], 'email': bool(u.email),
-                         'last_booking': recent.get(u.pk)} for u in staff_queryset()),
+                         'last_booking': recent.get(u.pk), 'last_vehicle': u.last_vehicle}
+                        for u in staff_queryset().annotate(last_vehicle=last_vehicle)),
                        key=lambda s: s['name'].lower())
         return Response({
             'types': ToolTypeSerializer(ToolType.objects.all(), many=True).data,
+            'vehicles': VehicleSerializer(Vehicle.objects.all(), many=True).data,
             'conditions': [{'value': v, 'label': lab} for v, lab in Tool.Condition.choices],
             'return_conditions': [{'value': v, 'label': lab} for v, lab in BookingItem.Condition.choices],
             'staff': staff,
@@ -522,3 +539,30 @@ class ToolTypeDetailView(_ToolsView):
         serializer.save()
         audit.log_update(request.user, tool_type, before)
         return Response(ToolTypeSerializer(tool_type).data)
+
+
+class VehicleListView(_ToolsView):
+    dashboard_perms = {'POST': 'tools.settings'}
+
+    @transaction.atomic
+    def post(self, request):
+        serializer = VehicleSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        last = Vehicle.objects.aggregate(n=Max('order'))['n']
+        vehicle = serializer.save(order=serializer.validated_data.get('order', (last or 0) + 1))
+        audit.log_create(request.user, vehicle)
+        return Response(VehicleSerializer(vehicle).data, status=status.HTTP_201_CREATED)
+
+
+class VehicleDetailView(_ToolsView):
+    dashboard_perms = {'PATCH': 'tools.settings'}
+
+    @transaction.atomic
+    def patch(self, request, pk):
+        vehicle = get_object_or_404(Vehicle, pk=pk)
+        serializer = VehicleSerializer(vehicle, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        before = audit.snapshot(vehicle)
+        serializer.save()
+        audit.log_update(request.user, vehicle, before)
+        return Response(VehicleSerializer(vehicle).data)

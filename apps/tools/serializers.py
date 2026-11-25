@@ -9,7 +9,7 @@ from apps.jobs.models import Job
 from apps.jobs.visibility import can_see_job
 from apps.records.archive import archive_data
 
-from .models import Booking, BookingItem, Movement, Tool, ToolSettings, ToolType, person_name
+from .models import Booking, BookingItem, Movement, Tool, ToolSettings, ToolType, Vehicle, person_name
 from .services import STATUS_LABELS, availability, booking_state, free_units, problems_of
 
 
@@ -21,6 +21,10 @@ def staff_queryset():
 
 def person(user):
     return {'id': user.pk, 'name': person_name(user)} if user else None
+
+
+def vehicle_brief(vehicle):
+    return {'id': vehicle.pk, 'name': vehicle.name, 'registration': vehicle.registration} if vehicle else None
 
 
 # ── tools ────────────────────────────────────────────────────────────────────
@@ -50,6 +54,7 @@ def tool_row(tool, out, holders):
             'booking_id': i.booking.booking_id,
             'since': i.booking.date_out,
             'quantity': i.quantity,
+            'vehicle': vehicle_brief(i.booking.vehicle) if i.booking.vehicle_id else None,
             'long_term_kit': i.booking.long_term_kit,
         } for i in sorted(holders, key=lambda i: (i.booking.date_out, i.booking.number))],
         'imported_from_sheet': tool.imported_from_sheet,
@@ -72,6 +77,33 @@ class ToolTypeSerializer(serializers.ModelSerializer):
         if clash.exists():
             raise serializers.ValidationError('There is already a tool type with this name.')
         return name
+
+
+class VehicleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Vehicle
+        fields = ['id', 'name', 'registration', 'order', 'is_active']
+        extra_kwargs = {'order': {'required': False}, 'name': {'validators': []}}
+
+    def _clash(self, **lookup):
+        clash = Vehicle.objects.filter(**lookup)
+        if self.instance:
+            clash = clash.exclude(pk=self.instance.pk)
+        return clash.exists()
+
+    def validate_name(self, value):
+        name = ' '.join(value.split())
+        if not name:
+            raise serializers.ValidationError('Enter a name.')
+        if self._clash(name__iexact=name):
+            raise serializers.ValidationError('There is already a vehicle with this name.')
+        return name
+
+    def validate_registration(self, value):
+        registration = ' '.join(value.split()).upper()
+        if registration and self._clash(registration__iexact=registration):
+            raise serializers.ValidationError('There is already a vehicle with this registration.')
+        return registration
 
 
 class ToolWriteSerializer(serializers.ModelSerializer):
@@ -181,6 +213,7 @@ def booking_row(booking, settings, today=None, user=None):
         'due_date': booking.due_date,
         'long_term_kit': booking.long_term_kit,
         'job': job_ref(booking.job if booking.job_id else None, user),
+        'vehicle': vehicle_brief(booking.vehicle) if booking.vehicle_id else None,
         'notes': booking.notes,
         'items': [item_data(i) for i in items],
         'units': sum(i.quantity for i in items),
@@ -265,6 +298,9 @@ class BookOutSerializer(serializers.Serializer):
     due_date = serializers.DateField(required=False, allow_null=True)
     long_term_kit = serializers.BooleanField(default=False)
     job = serializers.CharField(required=False, allow_blank=True, allow_null=True, max_length=30)
+    vehicle = serializers.PrimaryKeyRelatedField(
+        queryset=Vehicle.objects.filter(is_active=True), required=False, allow_null=True,
+        error_messages={'does_not_exist': 'That vehicle is switched off or no longer exists. Pick another one.'})
     notes = serializers.CharField(required=False, allow_blank=True, max_length=2000, default='')
     notify = serializers.BooleanField(default=True)
     confirm_handover = serializers.BooleanField(default=False)
@@ -284,10 +320,19 @@ class BookingUpdateSerializer(serializers.Serializer):
     due_date = serializers.DateField(required=False, allow_null=True)
     long_term_kit = serializers.BooleanField(required=False)
     job = serializers.CharField(required=False, allow_blank=True, allow_null=True, max_length=30)
+    vehicle = serializers.PrimaryKeyRelatedField(
+        queryset=Vehicle.objects.all(), required=False, allow_null=True,
+        error_messages={'does_not_exist': 'That vehicle no longer exists.'})
     notes = serializers.CharField(required=False, allow_blank=True, max_length=2000)
 
     def validate_job(self, value):
         return parse_job(value, _request_user(self), keep=self.instance.job if self.instance else None)
+
+    def validate_vehicle(self, value):
+        # A switched-off vehicle can stay on the booking that has it, not be picked anew.
+        if value is not None and not value.is_active and value.pk != self.instance.vehicle_id:
+            raise serializers.ValidationError('That vehicle is switched off. Pick another one.')
+        return value
 
     def validate_notes(self, value):
         return value.strip()
