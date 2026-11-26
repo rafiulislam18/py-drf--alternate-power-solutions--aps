@@ -45,14 +45,14 @@ class JobCategory(models.Model):
 
 
 class Job(TrashableModel, ArchivableModel):
-    # In workflow order: the list's default sort (live work first).
+    # This order is used everywhere: the status tabs, the status select and the list's "Status" sort.
     class Status(models.TextChoices):
-        OPEN = 'open', 'Open'
         QUOTE_SENT = 'quote_sent', 'Quote sent'
+        OPEN = 'open', 'Open'
         IN_PROGRESS = 'in_progress', 'In progress'
-        ON_HOLD = 'on_hold', 'On hold'
         DONE = 'done', 'Done'
         INVOICED = 'invoiced', 'Invoiced'
+        ON_HOLD = 'on_hold', 'On hold'
         NOT_ACCEPTED = 'not_accepted', 'Not accepted'
         CANCELLED = 'cancelled', 'Cancelled'
 

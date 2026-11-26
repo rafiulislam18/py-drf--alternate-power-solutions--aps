@@ -149,6 +149,15 @@ def test_list_order_filters_counts_and_search(api, boss):
     assert newest_open['job_id'] == 'APS-004'
 
 
+def test_status_order_is_the_same_for_tabs_selects_and_the_status_sort(api):
+    order = ['quote_sent', 'open', 'in_progress', 'done', 'invoiced', 'on_hold', 'not_accepted', 'cancelled']
+    assert [s['value'] for s in api.get(f'{JOBS}options/').data['statuses']] == order
+    for status in reversed(order):
+        create(api, client_name=status, status=status)
+    create(api, client_name='none', status='')
+    assert [r['client_name'] for r in api.get(JOBS).data['results']] == [*order, 'none']
+
+
 def test_live_jobs_are_coloured_by_days_since_the_last_update(api):
     jobs = {name: create(api, client_name=name, status=status)
             for name, status in [('fresh', 'open'), ('watch', 'open'), ('aging', 'quote_sent'),
